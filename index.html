@@ -2906,7 +2906,7 @@ document.addEventListener('change',e=>{const el=e.target;const isSel=el.tagName=
   if(isSel){selectDone=true;try{el.blur()}catch(_){}}const f=el.dataset&&CHG[el.dataset.chg];if(f)f(el);
   if(isSel){if(pending){pending=false;render()}selectDone=false}});
 document.addEventListener('keydown',e=>{const k=e.target&&e.target.dataset&&e.target.dataset.ac;if(!k||e.key!=='Enter')return;e.preventDefault();const s=acCache[k]&&acCache[k][0];if(s){const b=document.querySelector(`[data-act="acPick"][data-k="${k}"][data-i="0"]`);if(b)A.acPick(b)}});
-document.addEventListener('input',e=>{const el=e.target;const k=el.dataset&&el.dataset.in;if(!k)return;const [o,f]=k.split('.');const tgt={c:ui.c,co:ui.co,np,nd,swz,nv,drIssue,joinF,rg,bk,au:AU}[o];if(!tgt)return;tgt[f]=el.value;if(o==='c'||o==='co')persist();if(o==='bk'){const f=document.getElementById('bk-foot');if(f)f.innerHTML=bkFoot()}if(el.dataset.live)render()});
+document.addEventListener('input',e=>{const el=e.target;const k=el.dataset&&el.dataset.in;if(!k)return;const [o,f]=k.split('.');const tgt={c:ui.c,co:ui.co,np,nd,swz,nv,drIssue,joinF,rg,bk,au:AU,lg:LG}[o];if(!tgt)return;tgt[f]=el.value;if(o==='c'||o==='co')persist();if(o==='bk'){const f=document.getElementById('bk-foot');if(f)f.innerHTML=bkFoot()}if(el.dataset.live)render()});
 document.addEventListener('focusout',e=>{if(pending&&e.target.tagName==='SELECT'){pending=false;setTimeout(scheduleRender,0)}});
 
 render();
@@ -3363,7 +3363,7 @@ return {shrinkImage, uploadOrderFile, uploadLogo, fileUrl, removeOrderFile};})()
    Χωρίς window.BAZAGO_LIVE η εφαρμογή μένει ίδια (επίδειξη).
    ===================================================================== */
 var LIVE = !!(window.BAZAGO_LIVE && window.BAZAGO_LIVE.url);
-var AU = { tab: 'login', kind: 'customer', email: '', password: '', password2: '', name: '', phone: '', code: '', ctype: 'private', busy: false, msg: '', err: '' };
+var AU = { tab: 'login', kind: 'customer', email: '', password: '', password2: '', name: '', phone: '', code: '', ctype: 'private', terms: false, busy: false, msg: '', err: '' };
 var SB = null, LV = { user: null, roles: null, loading: false, mun: {}, munByName: {} };
 
 function roleList() {
@@ -3402,9 +3402,9 @@ function authView() {
       + (a.kind === 'driver' ? f('code', 'Κωδικός πρόσκλησης από την εταιρία (6 ψηφία)', 'text', 'inputmode="numeric" maxlength="6"') : '')
       + f('email', 'Email', 'email', 'autocomplete="email" inputmode="email"') + f('password', 'Κωδικός (τουλάχιστον 8 χαρακτήρες)', 'password', 'autocomplete="new-password"')
       + (a.kind === 'company' ? `<p class="xs muted">Μετά την επιβεβαίωση του email συμπληρώνεις τα στοιχεία της εταιρίας. Η εταιρία εμφανίζεται στους πελάτες μόλις την εγκρίνει το BazaGo.</p>` : '')
-      + note + `<button class="btn primary big" data-act="auSignup" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Εγγραφή…' : 'Εγγραφή'}</button>`;
+      + lgSignupCheck() + note + `<button class="btn primary big" data-act="auSignup" ${a.busy ? 'disabled' : ''}>${a.busy ? 'Εγγραφή…' : 'Εγγραφή'}</button>`;
   }
-  return h + `</div><p class="xs muted" style="text-align:center">Με τη χρήση του BazaGo αποδέχεσαι τους όρους χρήσης και την πολιτική απορρήτου.</p></div>`;
+  return h + `</div>${lgAuthLinks()}</div>`;
 }
 
 const AUTH_ACTIONS = {
@@ -3422,9 +3422,10 @@ const AUTH_ACTIONS = {
     const a = AU;
     if (!a.name.trim() || !a.email.trim() || !a.password) { a.err = 'Συμπλήρωσε όνομα, email και κωδικό'; render(); return; }
     if (a.password.length < 8) { a.err = 'Ο κωδικός πρέπει να έχει τουλάχιστον 8 χαρακτήρες'; render(); return; }
+    if (!a.terms) { a.err = 'Για την εγγραφή χρειάζεται να αποδεχτείς τους Όρους χρήσης'; render(); return; }
     if (a.kind === 'driver' && !/^\d{6}$/.test(a.code.trim())) { a.err = 'Ο κωδικός πρόσκλησης έχει 6 ψηφία. Ζήτησέ τον από την εταιρία σου.'; render(); return; }
     a.busy = true; a.err = ''; render();
-    const data = { full_name: a.name.trim(), phone: a.phone.trim(), account: a.kind, customer_type: a.ctype };
+    const data = { full_name: a.name.trim(), phone: a.phone.trim(), account: a.kind, customer_type: a.ctype, terms_version: LG_VERSION };
     if (a.kind === 'driver') data.invite_code = a.code.trim();
     const { data: res, error } = await SB.auth.signUp({ email: a.email.trim(), password: a.password,
       options: { data, emailRedirectTo: location.origin + location.pathname } });
@@ -3718,8 +3719,9 @@ async function liveBoot() {
     if (AU.tab === 'newpass') return authView();
     if (loaded < NEED) return '<div class="stack"><div class="skeleton"></div><div class="skeleton"></div></div>';
     return baseBody().replace(/<div class="footer-tools[\s\S]*$/, '') +
-      `<div class="footer-tools row-wrap between"><span class="xs muted">${esc(LV.user.email)}</span><button class="btn link" data-act="auLogout">Αποσύνδεση</button></div>`;
+      `<div class="footer-tools row-wrap between"><span class="xs muted">${esc(LV.user.email)}</span><span class="row-wrap"><button class="btn link" data-act="lgAccount">Λογαριασμός &amp; απόρρητο</button><button class="btn link" data-act="auLogout">Αποσύνδεση</button></span></div>`;
   };
+  liveLegalBoot();
   // σύνδεσμος από email (επιβεβαίωση λογαριασμού / νέος κωδικός)
   const fromMail = await SB.auth.fromUrl();
   if (fromMail.data || fromMail.error) history.replaceState(null, '', location.pathname);
@@ -4664,6 +4666,234 @@ function livePushBoot() {
   };
   const baseLogout = A.auLogout;
   A.auLogout = async function () { await lvPushForget(false); return baseLogout.apply(this, arguments); };
+}
+
+/* =====================================================================
+   BazaGo · Βήμα 9α — Όροι χρήσης, Πολιτική απορρήτου, λογαριασμός (GDPR)
+   • Σελίδες Όρων / Πολιτικής, ανοίγουν και χωρίς σύνδεση
+   • Εγγραφή: υποχρεωτική αποδοχή (γράφεται έκδοση + ημερομηνία)
+   • Νέα έκδοση όρων → ζητείται ξανά αποδοχή μετά τη σύνδεση
+   • «Λογαριασμός & απόρρητο»: λήψη δεδομένων (JSON), διαγραφή λογαριασμού
+   Τα στοιχεία της επιχείρησης έρχονται από τις Ρυθμίσεις πλατφόρμας (legal_info).
+   ===================================================================== */
+
+var LG_VERSION = '2026-11';                    // αλλάζει όταν αλλάζουν ουσιαστικά οι όροι → νέα αποδοχή
+var LG_DATE = '6 Νοεμβρίου 2026';
+var LG_MAIL = 'info@bazago.gr';
+var LG_DB = 'σε κέντρο δεδομένων εντός της Ευρωπαϊκής Ένωσης';
+var LG = { page: null, back: null, info: null, need: false, accepted: null, del: '', busy: false };
+
+const lgMail = () => `<a href="mailto:${LG_MAIL}">${LG_MAIL}</a>`;
+function lgEntity() {
+  const i = LG.info || {};
+  if (!i.legal_name) return '<b>BazaGo</b>';
+  return `<b>${esc(i.legal_name)}</b>` + [i.afm && 'ΑΦΜ ' + esc(i.afm), i.doy && 'ΔΟΥ ' + esc(i.doy), i.address && esc(i.address)].filter(Boolean).map((x) => ', ' + x).join('');
+}
+const lgEur = (n) => (Math.round((+n || 0) * 100) / 100).toLocaleString('el-GR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' €';
+
+async function lgLoadInfo() {
+  if (LG.info) return;
+  try {
+    const { data } = await SB.rpc('legal_info');
+    LG.info = (Array.isArray(data) ? data[0] : data) || {};
+  } catch (e) { LG.info = {}; }
+  if (LG.page) render();
+}
+
+/* ---------------------------------------------------------------- κείμενα */
+function lgTerms() {
+  const i = LG.info || {};
+  const fee = i.fee_bin != null ? `${lgEur(i.fee_bin)} ανά παράδοση κάδου και ${lgEur(i.fee_container)} ανά παράδοση κοντέινερ, πλέον ΦΠΑ` : 'όπως ορίζεται στον τιμοκατάλογο της πλατφόρμας';
+  const days = i.payment_days || 15;
+  return [
+    ['1. Ποιοι είμαστε', `<p>Το BazaGo είναι ηλεκτρονική πλατφόρμα που φέρνει σε επαφή όσους χρειάζονται κάδο ή κοντέινερ για μπάζα και άλλα υλικά («πελάτες») με επιχειρήσεις που τα διαθέτουν («εταιρίες»). Την πλατφόρμα λειτουργεί η επιχείρηση ${lgEntity()} («BazaGo», «εμείς»). Επικοινωνία: ${lgMail()}.</p>
+      <p>Με την εγγραφή και τη χρήση της εφαρμογής αποδέχεσαι αυτούς τους όρους. Αν δεν συμφωνείς, μη χρησιμοποιείς την εφαρμογή.</p>`],
+    ['2. Ο ρόλος του BazaGo', `<p>Το BazaGo <b>δεν</b> νοικιάζει κάδους, δεν μεταφέρει και δεν διαχειρίζεται απόβλητα. Την υπηρεσία (παράδοση, ενοικίαση, αποκομιδή, διαχείριση των υλικών) την παρέχει η εταιρία που επιλέγεις, με δική της ευθύνη. Η σύμβαση ενοικίασης συνάπτεται απευθείας ανάμεσα σε εσένα και την εταιρία.</p>
+      <p>Το BazaGo παρέχει το λογισμικό: αναζήτηση, παραγγελία, προγραμματισμό, ειδοποιήσεις, παρακολούθηση της διαδρομής και αρχείο εγγράφων.</p>`],
+    ['3. Λογαριασμός', `<ul><li>Για να χρησιμοποιήσεις την εφαρμογή πρέπει να είσαι τουλάχιστον 18 ετών.</li>
+      <li>Δίνεις αληθινά στοιχεία και τα κρατάς ενημερωμένα, ιδίως τηλέφωνο και διεύθυνση, γιατί τα χρειάζεται η εταιρία για την παράδοση.</li>
+      <li>Κρατάς τον κωδικό σου μυστικό. Ό,τι γίνεται από τον λογαριασμό σου θεωρείται ότι έγινε από εσένα. Αν υποψιαστείς μη εξουσιοδοτημένη χρήση, άλλαξε τον κωδικό και ενημέρωσέ μας.</li>
+      <li>Μπορείς να διαγράψεις τον λογαριασμό σου οποιαδήποτε στιγμή από το «Λογαριασμός &amp; απόρρητο».</li></ul>`],
+    ['4. Παραγγελίες (για πελάτες)', `<ul><li>Το αίτημα που στέλνεις δεσμεύει την εταιρία μόνο όταν το <b>αποδεχτεί</b>. Η εταιρία μπορεί να το απορρίψει ή να προτείνει άλλη ημέρα ή χρέωση, την οποία δέχεσαι ή απορρίπτεις.</li>
+      <li>Τις τιμές, τις ημέρες ενοικίασης, τις χρεώσεις για επιπλέον ημέρες, τόνους ή υλικά τις ορίζει η εταιρία και τις βλέπεις πριν στείλεις το αίτημα. Οι τιμές περιλαμβάνουν ΦΠΑ, όπου αναφέρεται.</li>
+      <li>Πριν την αποστολή αποδέχεσαι και τους <b>όρους ενοικίασης</b> της παραγγελίας: επιτρεπόμενα υλικά, χώρος τοποθέτησης, άδεια δήμου. Η αποδοχή ισχύει ως υπογραφή.</li>
+      <li>Στον κάδο μπαίνουν μόνο τα υλικά που δήλωσες. Απαγορεύονται αμίαντος/ελενίτ, οικιακά απορρίμματα, τρόφιμα, επικίνδυνα χημικά και κάθε επικίνδυνο απόβλητο.</li>
+      <li>Αν ο κάδος τοποθετηθεί σε δρόμο ή πεζοδρόμιο, η <b>άδεια κατάληψης κοινόχρηστου χώρου</b> από τον δήμο είναι δική σου ευθύνη.</li>
+      <li>Μπορείς να ακυρώσεις από την εφαρμογή όσο ο κάδος δεν έχει ξεκινήσει προς εσένα. Μετά, ισχύουν όσα συμφωνήσεις με την εταιρία.</li>
+      <li>Ευθύνεσαι για τον κάδο όσο βρίσκεται στο σημείο σου, για χρήση σύμφωνη με τους όρους.</li></ul>`],
+    ['5. Πληρωμές', `<p>Πληρώνεις <b>απευθείας την εταιρία</b>, με τον τρόπο που συμφωνείτε. Η εταιρία εκδίδει την απόδειξη ή το τιμολόγιο. Το BazaGo δεν εισπράττει χρήματα από πελάτες και δεν χρεώνει τους πελάτες για τη χρήση της πλατφόρμας.</p>`],
+    ['6. Εταιρίες', `<ul><li>Η εταιρία δηλώνει και εγγυάται ότι διαθέτει όλες τις άδειες και εγγραφές που απαιτεί ο νόμος για τη συλλογή, μεταφορά και διαχείριση αποβλήτων (μεταξύ άλλων εγγραφή στο ΗΜΑ, συνεργασία με αδειοδοτημένο σύστημα ή μονάδα διαχείρισης ΑΕΚΚ, άδειες οχημάτων), καθώς και την απαιτούμενη ασφάλιση.</li>
+      <li>Δίνει ακριβείς τιμές, περιοχές εξυπηρέτησης, διαθεσιμότητα και στοιχεία οχημάτων, και τα ενημερώνει.</li>
+      <li>Εκτελεί τις παραγγελίες που αποδέχεται, εκδίδει τα νόμιμα παραστατικά και, όπου απαιτείται, τις βεβαιώσεις διαχείρισης.</li>
+      <li>Χρησιμοποιεί τα στοιχεία των πελατών μόνο για την εκτέλεση της παραγγελίας και τις νόμιμες υποχρεώσεις της. Για τα στοιχεία αυτά είναι η ίδια υπεύθυνη επεξεργασίας.</li>
+      <li><b>Χρέωση πλατφόρμας:</b> ${fee}, για κάθε παράδοση που ολοκληρώνεται μέσω της εφαρμογής. Στο τέλος κάθε μήνα το BazaGo εκδίδει τιμολόγιο, το οποίο εξοφλείται εντός ${days} ημερών. Αλλαγές στη χρέωση ανακοινώνονται τουλάχιστον 30 ημέρες πριν ισχύσουν.</li>
+      <li>Το BazaGo εγκρίνει τις εταιρίες πριν εμφανιστούν στους πελάτες και μπορεί να αναστείλει εταιρία σε περίπτωση ληξιπρόθεσμης οφειλής, σοβαρών ή επανειλημμένων παραπόνων ή παράβασης των όρων.</li></ul>`],
+    ['7. Οδηγοί', `<p>Ο οδηγός συνδέεται με πρόσκληση της εταιρίας του και χρησιμοποιεί την εφαρμογή για τις εργασίες που του ανατίθενται. Η θέση του (GPS) αποστέλλεται <b>μόνο όσο μια εργασία είναι σε εξέλιξη</b> και τη βλέπουν ο πελάτης της εργασίας και η εταιρία. Οι φωτογραφίες παράδοσης αποτελούν αποδεικτικό της εργασίας.</p>`],
+    ['8. Αξιολογήσεις και περιεχόμενο', `<p>Οι αξιολογήσεις πρέπει να είναι ειλικρινείς και να αφορούν πραγματική παραγγελία. Οι φωτογραφίες και τα κείμενα που ανεβάζεις πρέπει να αφορούν την παραγγελία και να μην παραβιάζουν δικαιώματα τρίτων. Μπορούμε να αφαιρέσουμε περιεχόμενο που είναι παράνομο, προσβλητικό ή παραπλανητικό.</p>`],
+    ['9. Τι δεν επιτρέπεται', `<ul><li>Ψευδείς παραγγελίες ή στοιχεία, παρενόχληση άλλων χρηστών.</li><li>Παράκαμψη της πλατφόρμας για να αποφευχθεί η χρέωση σε παραγγελίες που ξεκίνησαν μέσα από αυτήν.</li>
+      <li>Πρόσβαση σε δεδομένα άλλων, αυτοματοποιημένη συλλογή δεδομένων, επιθέσεις ή απόπειρες παράκαμψης της ασφάλειας.</li></ul>
+      <p>Σε παράβαση μπορούμε να αναστείλουμε ή να κλείσουμε τον λογαριασμό, αφού σε ενημερώσουμε, εκτός αν υπάρχει άμεσος κίνδυνος.</p>`],
+    ['10. Ευθύνη', `<p>Κάνουμε ό,τι είναι εύλογο ώστε η εφαρμογή να λειτουργεί σωστά και με ασφάλεια, αλλά δεν μπορούμε να εγγυηθούμε ότι θα λειτουργεί πάντα χωρίς διακοπές ή σφάλματα. Οι χρόνοι άφιξης και οι διαθέσιμες ημέρες είναι εκτιμήσεις.</p>
+      <p>Για την εκτέλεση της υπηρεσίας, την ποιότητά της, ζημιές από τον κάδο ή τη μεταφορά και τη νόμιμη διαχείριση των υλικών ευθύνεται η εταιρία που την παρέχει, και ο πελάτης για τη χρήση του κάδου σύμφωνα με τους όρους. Το BazaGo ευθύνεται για δόλο και βαριά αμέλεια, καθώς και όπου ο νόμος δεν επιτρέπει περιορισμό της ευθύνης. Τα δικαιώματα που σου δίνει η νομοθεσία για την προστασία του καταναλωτή δεν περιορίζονται από αυτούς τους όρους.</p>`],
+    ['11. Αλλαγές στους όρους', `<p>Μπορεί να αλλάξουμε τους όρους, για παράδειγμα όταν προστίθενται λειτουργίες ή αλλάζει ο νόμος. Για ουσιαστικές αλλαγές θα σε ενημερώνουμε μέσα στην εφαρμογή και θα σου ζητάμε νέα αποδοχή πριν συνεχίσεις.</p>`],
+    ['12. Εφαρμοστέο δίκαιο, παράπονα', `<p>Ισχύει το ελληνικό δίκαιο. Για οποιοδήποτε παράπονο γράψε μας στο ${lgMail()} και θα απαντήσουμε το συντομότερο. Ως καταναλωτής μπορείς επίσης να απευθυνθείς στον Συνήγορο του Καταναλωτή ή σε άλλο φορέα εναλλακτικής επίλυσης διαφορών. Για διαφορές αρμόδια είναι τα δικαστήρια της Αθήνας, με την επιφύλαξη του δικαιώματος του καταναλωτή να προσφύγει στα δικαστήρια του τόπου κατοικίας του.</p>`],
+  ];
+}
+
+function lgPrivacy() {
+  return [
+    ['1. Ποιος είναι υπεύθυνος', `<p>Υπεύθυνος επεξεργασίας για τα δεδομένα του λογαριασμού σου και τη λειτουργία της εφαρμογής είναι η επιχείρηση ${lgEntity()} («BazaGo»). Για οτιδήποτε αφορά τα δεδομένα σου: ${lgMail()}.</p>
+      <p>Όταν κάνεις παραγγελία, η <b>εταιρία</b> που επιλέγεις λαμβάνει τα στοιχεία που χρειάζεται για να την εκτελέσει και είναι η ίδια υπεύθυνη για τη χρήση τους, π.χ. για τα παραστατικά της.</p>`],
+    ['2. Ποια δεδομένα συλλέγουμε', `<ul><li><b>Λογαριασμός:</b> email, κωδικός (αποθηκεύεται κρυπτογραφημένος), ονοματεπώνυμο, κινητό, ημερομηνία αποδοχής των όρων.</li>
+      <li><b>Πελάτες:</b> διευθύνσεις έργων και θέση στον χάρτη, στοιχεία τιμολόγησης (επωνυμία, ΑΦΜ, ΔΟΥ, διεύθυνση) αν τα δώσεις, αγαπημένες εταιρίες, αξιολογήσεις.</li>
+      <li><b>Παραγγελίες:</b> μέγεθος κάδου, υλικά, ημέρες, τιμές, σημειώσεις, φωτογραφίες υλικών και σημείου, ιστορικό κινήσεων, παραστατικά.</li>
+      <li><b>Εταιρίες:</b> στοιχεία επιχείρησης, υπεύθυνοι, οχήματα, περιοχές και τιμές.</li>
+      <li><b>Οδηγοί:</b> όνομα, κινητό, εταιρία, όχημα, φωτογραφίες παράδοσης, και η <b>θέση GPS μόνο όσο είναι σε διαδρομή για εργασία</b>. Κρατάμε μόνο την τελευταία θέση, όχι ιστορικό διαδρομών.</li>
+      <li><b>Τεχνικά:</b> αν ενεργοποιήσεις ειδοποιήσεις, ένα αναγνωριστικό της συσκευής για push· βασικά στοιχεία σύνδεσης (π.χ. διεύθυνση IP) στα αρχεία καταγραφής των παρόχων μας για λόγους ασφαλείας.</li></ul>`],
+    ['3. Γιατί και με ποια νομική βάση', `<ul><li><b>Εκτέλεση σύμβασης</b> (άρθρο 6 παρ. 1β ΓΚΠΔ): λογαριασμός, παραγγελίες, προγραμματισμός, ειδοποιήσεις για την πορεία της παραγγελίας, τιμολόγηση εταιριών.</li>
+      <li><b>Νομική υποχρέωση</b> (6 παρ. 1γ): φορολογικά και λογιστικά αρχεία, βεβαιώσεις διαχείρισης αποβλήτων.</li>
+      <li><b>Έννομο συμφέρον</b> (6 παρ. 1στ): ασφάλεια, πρόληψη απάτης και κατάχρησης, επίλυση διαφορών, βελτίωση της εφαρμογής. Για τους οδηγούς: εμφάνιση της θέσης τους στον πελάτη και στην εταιρία μόνο κατά τη διαδρομή.</li>
+      <li><b>Συγκατάθεση</b> (6 παρ. 1α): ειδοποιήσεις push και πρόσβαση στην τοποθεσία της συσκευής. Τις ανακαλείς οποιαδήποτε στιγμή από την εφαρμογή ή τις ρυθμίσεις της συσκευής.</li></ul>
+      <p>Δεν πουλάμε δεδομένα, δεν στέλνουμε διαφημίσεις και δεν κάνουμε αυτοματοποιημένη λήψη αποφάσεων με έννομα αποτελέσματα. Οι προτάσεις ημέρας ή οδηγού είναι βοηθητικές και τις επιβεβαιώνει άνθρωπος.</p>`],
+    ['4. Ποιος βλέπει τα δεδομένα', `<ul><li><b>Η εταιρία της παραγγελίας</b> και οι οδηγοί της: όνομα, τηλέφωνο, διεύθυνση, υλικά, φωτογραφίες και στοιχεία τιμολόγησης.</li>
+      <li><b>Ο πελάτης</b>: όνομα εταιρίας, πινακίδα και θέση του φορτηγού κατά τη διαδρομή, φωτογραφία παράδοσης.</li>
+      <li><b>Πάροχοι που εκτελούν την επεξεργασία για λογαριασμό μας</b>, με σύμβαση και μόνο για όσα χρειάζονται:
+        <br>· <b>Supabase</b>: βάση δεδομένων, λογαριασμοί, αρχεία, ${LG_DB}.
+        <br>· <b>Resend</b>: αποστολή email (ΕΕ, Ιρλανδία).
+        <br>· <b>Cloudflare</b>: διαχείριση του domain και προώθηση email.
+        <br>· <b>GitHub</b> (Microsoft): φιλοξενία των αρχείων της εφαρμογής· βλέπει μόνο τεχνικά στοιχεία σύνδεσης.
+        <br>· <b>Υπηρεσίες push</b> του browser ή του κινητού (Google, Apple, Mozilla): μεταφέρουν την ειδοποίηση κρυπτογραφημένη.</li>
+      <li><b>Αρχές</b>, όταν το επιβάλλει ο νόμος.</li></ul>
+      <p>Όπου κάποιος πάροχος μεταφέρει δεδομένα εκτός ΕΕ (π.χ. ΗΠΑ), αυτό γίνεται με τις προβλεπόμενες εγγυήσεις: απόφαση επάρκειας (EU-US Data Privacy Framework) ή τυποποιημένες συμβατικές ρήτρες.</p>`],
+    ['5. Πόσο τα κρατάμε', `<ul><li><b>Λογαριασμός:</b> όσο είναι ενεργός. Με τη διαγραφή σβήνονται αμέσως τα στοιχεία λογαριασμού, έργα, αγαπημένα, ειδοποιήσεις και συσκευές.</li>
+      <li><b>Ολοκληρωμένες παραγγελίες και παραστατικά:</b> όσο απαιτεί η φορολογική νομοθεσία, κατά κανόνα 5 έτη από το τέλος της χρήσης. Μετά τη διαγραφή του λογαριασμού μένουν <b>χωρίς όνομα και τηλέφωνο</b>.</li>
+      <li><b>Θέση οδηγού:</b> μόνο η τελευταία, αντικαθίσταται συνεχώς· σβήνεται με τη διαγραφή του λογαριασμού.</li>
+      <li><b>Ειδοποιήσεις:</b> 12 μήνες.</li>
+      <li><b>Αρχεία καταγραφής παρόχων:</b> για λίγες ημέρες έως εβδομάδες, σύμφωνα με την πολιτική κάθε παρόχου.</li></ul>`],
+    ['6. Τα δικαιώματά σου', `<p>Έχεις δικαίωμα <b>πρόσβασης, διόρθωσης, διαγραφής, περιορισμού, φορητότητας</b> και <b>εναντίωσης</b> στην επεξεργασία, καθώς και να ανακαλέσεις τη συγκατάθεσή σου.</p>
+      <ul><li>Τα περισσότερα στοιχεία τα διορθώνεις μόνος σου από το προφίλ.</li>
+      <li>Από το <b>«Λογαριασμός &amp; απόρρητο»</b> κατεβάζεις όλα τα δεδομένα σου σε αρχείο ή διαγράφεις τον λογαριασμό.</li>
+      <li>Για οτιδήποτε άλλο γράψε μας στο ${lgMail()}. Απαντάμε εντός ενός μήνα.</li></ul>
+      <p>Αν θεωρείς ότι παραβιάζονται τα δικαιώματά σου, μπορείς να υποβάλεις καταγγελία στην <b>Αρχή Προστασίας Δεδομένων Προσωπικού Χαρακτήρα</b> (www.dpa.gr, Λ. Κηφισίας 1–3, 115 23 Αθήνα).</p>`],
+    ['7. Cookies και αποθήκευση στη συσκευή', `<p>Η εφαρμογή <b>δεν</b> χρησιμοποιεί cookies διαφήμισης ή παρακολούθησης ούτε εργαλεία στατιστικών τρίτων. Αποθηκεύει στη συσκευή σου (local storage) μόνο ό,τι είναι απαραίτητο για να λειτουργεί: τη σύνδεσή σου και ρυθμίσεις όπως η τελευταία καρτέλα. Γι' αυτό δεν χρειάζεται συγκατάθεση για cookies.</p>`],
+    ['8. Ασφάλεια', `<p>Η επικοινωνία γίνεται κρυπτογραφημένα (https). Κάθε χρήστης βλέπει μόνο τα δεδομένα που του αναλογούν: οι κανόνες πρόσβασης εφαρμόζονται στη βάση και όχι μόνο στην εφαρμογή. Τα αρχεία των παραγγελιών ανοίγουν μόνο με προσωρινούς συνδέσμους. Αν συμβεί παραβίαση δεδομένων που σε αφορά, θα ενημερώσουμε την Αρχή και εσένα, όπως ορίζει ο νόμος.</p>`],
+    ['9. Ανήλικοι', `<p>Η εφαρμογή απευθύνεται σε ενήλικες (18+). Δεν συλλέγουμε εν γνώσει μας δεδομένα ανηλίκων.</p>`],
+    ['10. Αλλαγές', `<p>Αν αλλάξει κάτι ουσιαστικό σε αυτή την πολιτική, θα σε ενημερώσουμε μέσα στην εφαρμογή. Ισχύει η έκδοση που εμφανίζεται εδώ.</p>`],
+  ];
+}
+
+/* ---------------------------------------------------------------- σελίδες */
+function lgDoc(title, secs) {
+  return `<article class="card stack legal" style="max-width:760px;margin:0 auto">
+    <button class="btn link" data-act="lgBack" style="align-self:flex-start">← Πίσω</button>
+    <h1 class="h2" style="margin:0">${title}</h1>
+    <p class="xs muted" style="margin:0">Έκδοση ${LG_VERSION} · ισχύει από ${LG_DATE}</p>
+    ${secs.map(([h, b]) => `<section><h2 class="h3" style="margin:14px 0 6px">${h}</h2><div class="small" style="line-height:1.6">${b}</div></section>`).join('')}
+    <button class="btn" data-act="lgBack" style="align-self:flex-start;margin-top:8px">Πίσω</button></article>`;
+}
+
+function lgAccount() {
+  const u = LV.user || {}, when = LG.accepted ? new Date(LG.accepted).toLocaleDateString('el-GR') : null;
+  return `<div class="stack" style="max-width:560px;margin:0 auto">
+    <button class="btn link" data-act="lgBack" style="align-self:flex-start">← Πίσω</button>
+    <div class="card stack-s"><h1 class="h2" style="margin:0">Λογαριασμός &amp; απόρρητο</h1>
+      <div class="kv"><span>Email</span><b>${esc(u.email || '')}</b></div>
+      <div class="kv"><span>Όροι χρήσης</span><span>${when ? 'Αποδοχή ' + esc(when) : '—'}</span></div>
+      <div class="row-wrap" style="gap:8px"><button class="btn sm" data-act="lgOpen" data-v="terms">Όροι χρήσης</button><button class="btn sm" data-act="lgOpen" data-v="privacy">Πολιτική απορρήτου</button></div></div>
+    <div class="card stack-s"><b>Τα δεδομένα μου</b>
+      <p class="small muted" style="margin:0">Κατέβασε σε αρχείο ό,τι έχει αποθηκευτεί για εσένα: λογαριασμό, προφίλ, έργα, παραγγελίες με το ιστορικό τους, ειδοποιήσεις.</p>
+      <button class="btn" data-act="lgExport" ${LG.busy ? 'disabled' : ''} style="align-self:flex-start">Λήψη των δεδομένων μου</button></div>
+    <div class="card stack-s"><b>Διαγραφή λογαριασμού</b>
+      <p class="small muted" style="margin:0">Σβήνονται οριστικά ο λογαριασμός, τα στοιχεία σου, τα έργα, τα αγαπημένα και οι ειδοποιήσεις. Οι ολοκληρωμένες παραγγελίες μένουν στην εταιρία που τις εκτέλεσε <b>χωρίς όνομα και τηλέφωνο</b>, όσο απαιτεί η φορολογική νομοθεσία. Δεν γίνεται αν έχεις παραγγελία σε εξέλιξη. Για λογαριασμό εταιρίας γράψε μας στο ${lgMail()}.</p>
+      <div class="field"><label class="label" for="lg-del">Γράψε <b>ΔΙΑΓΡΑΦΗ</b> για επιβεβαίωση</label><input class="input" id="lg-del" data-in="lg.del" value="${esc(LG.del)}" autocomplete="off"></div>
+      <button class="btn" data-act="lgDelete" ${LG.busy ? 'disabled' : ''} style="align-self:flex-start;color:var(--accent-ink);border-color:var(--accent-ink)">Οριστική διαγραφή λογαριασμού</button></div></div>`;
+}
+
+function lgGate() {
+  return `<div class="stack" style="max-width:520px;margin:0 auto;padding-top:8px"><div class="card stack">
+    <h1 class="h2" style="margin:0">Όροι χρήσης και απόρρητο</h1>
+    <p class="small">Για να συνεχίσεις στο BazaGo, διάβασε και αποδέξου τους όρους. ${LG.accepted ? 'Οι όροι άλλαξαν από την τελευταία φορά που τους αποδέχτηκες.' : ''}</p>
+    <div class="row-wrap" style="gap:8px"><button class="btn sm" data-act="lgOpen" data-v="terms">Όροι χρήσης</button><button class="btn sm" data-act="lgOpen" data-v="privacy">Πολιτική απορρήτου</button></div>
+    <button class="btn primary big" data-act="lgAccept" ${LG.busy ? 'disabled' : ''}>Αποδέχομαι τους Όρους χρήσης</button>
+    <button class="btn link" data-act="auLogout" style="align-self:center">Αποσύνδεση</button></div></div>`;
+}
+
+// σύνδεσμοι κάτω από τη σύνδεση και πεδίο αποδοχής στην εγγραφή
+function lgAuthLinks() {
+  return `<p class="xs muted" style="text-align:center"><a href="#" data-act="lgOpen" data-v="terms">Όροι χρήσης</a> · <a href="#" data-act="lgOpen" data-v="privacy">Πολιτική απορρήτου</a> · ${lgMail()}</p>`;
+}
+function lgSignupCheck() {
+  return `<label class="check small" style="align-items:flex-start"><input type="checkbox" data-act="lgTerms" ${AU.terms ? 'checked' : ''}>
+    <span>Είμαι 18+ και αποδέχομαι τους <a href="#" data-act="lgOpen" data-v="terms">Όρους χρήσης</a>. Διάβασα την <a href="#" data-act="lgOpen" data-v="privacy">Πολιτική απορρήτου</a>.</span></label>`;
+}
+
+/* ---------------------------------------------------------------- ενέργειες */
+const LIVE_LEGAL = {
+  lgOpen(el) { if (!LG.page || LG.page === 'account') LG.back = LG.page; LG.page = el.dataset.v; window.scrollTo(0, 0); lgLoadInfo(); render(); },
+  lgBack() { LG.page = LG.back || null; LG.back = null; window.scrollTo(0, 0); render(); },
+  lgAccount() { LG.page = 'account'; LG.back = null; LG.del = ''; window.scrollTo(0, 0); render(); },
+  lgTerms() { AU.terms = !AU.terms; AU.err = ''; render(); },
+  async lgAccept() {
+    LG.busy = true; render();
+    const { error } = await SB.rpc('accept_terms', { p_version: LG_VERSION });
+    LG.busy = false;
+    if (error) { toast(error.message); render(); return; }
+    LG.need = false; LG.accepted = new Date().toISOString(); render(); toast('Ευχαριστούμε');
+  },
+  async lgExport() {
+    LG.busy = true; render();
+    const { data, error } = await SB.rpc('export_my_data');
+    LG.busy = false; render();
+    if (error) { toast(error.message); return; }
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'bazago-ta-dedomena-mou-' + new Date().toISOString().slice(0, 10) + '.json';
+    document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+    toast('Το αρχείο κατέβηκε');
+  },
+  async lgDelete() {
+    const w = (LG.del || '').trim().toUpperCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    if (w !== 'ΔΙΑΓΡΑΦΗ') { toast('Γράψε ΔΙΑΓΡΑΦΗ στο πεδίο για επιβεβαίωση'); return; }
+    LG.busy = true; render();
+    const { error } = await SB.rpc('delete_my_account', { p_confirm: 'ΔΙΑΓΡΑΦΗ' });
+    LG.busy = false;
+    if (error) { render(); toast(error.message); return; }
+    LG.page = null; LG.del = '';
+    try { await lvPushForget(true); } catch (e) { /* */ }
+    try { LS.set('osNotif', false); } catch (e) { /* */ }
+    try { await A.auLogout(); } catch (e) { /* ο λογαριασμός έχει ήδη σβηστεί */ }
+    AU.msg = 'Ο λογαριασμός σου διαγράφηκε. Ευχαριστούμε που χρησιμοποίησες το BazaGo.'; render();
+  },
+};
+
+async function lgCheckTerms() {
+  if (!LV.user) { LG.need = false; return; }
+  try {
+    const { data, error } = await SB.from('profiles').select('terms_version,terms_accepted_at').eq('id', LV.user.id).single();
+    if (error || !data) { LG.need = false; return; }          // η βάση δεν έχει ακόμα τα πεδία· δεν κλειδώνουμε κανέναν έξω
+    LG.accepted = data.terms_accepted_at;
+    LG.need = data.terms_version !== LG_VERSION;
+  } catch (e) { LG.need = false; }
+}
+
+function liveLegalBoot() {
+  Object.assign(A, LIVE_LEGAL);
+  const baseBody = body;
+  body = function () {
+    if (LG.page === 'terms') return lgDoc('Όροι χρήσης', lgTerms());
+    if (LG.page === 'privacy') return lgDoc('Πολιτική απορρήτου', lgPrivacy());
+    if (LG.page === 'account' && LV.user) return lgAccount();
+    if (LV.user && LG.need && AU.tab !== 'newpass') return lgGate();
+    return baseBody();
+  };
+  const baseAfter = liveAfterLogin;
+  liveAfterLogin = async function () {
+    await baseAfter();
+    await lgCheckTerms();
+    if (LG.need) { lgLoadInfo(); render(); }
+  };
+  const baseLogout = A.auLogout;
+  A.auLogout = async function () { LG.need = false; LG.page = null; LG.accepted = null; return baseLogout.apply(this, arguments); };
 }
 
 if(location.hostname==='127.0.0.1')window.__bz={A,CHG,get D(){return D},get ui(){return ui},get LV(){return LV},render,patchCompany,save:(...a)=>save(...a)};
