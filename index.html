@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="light dark">
 <link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="BazaGo">
 </head>
 <body>
 <title>BazaGo</title>
@@ -747,7 +751,7 @@ function onData(){dataVer++;
     const fresh=notifList(ui.role).filter(n=>!seen.has(n.key));
     Object.entries(D.orders).forEach(([id,o])=>(o.events||[]).forEach(e=>seen.add(evKey(id,e))));fresh.forEach(n=>seen.add(n.key));
     if(fresh.length){toast(fresh[0].text+(fresh[0].code&&!fresh[0].veh?' · #'+fresh[0].code:''));
-      try{if(document.hidden&&LS.get('osNotif',false)&&window.Notification&&Notification.permission==='granted')fresh.slice(0,3).forEach(n=>new Notification('BazaGo · #'+n.code,{body:n.text,tag:n.key}))}catch(e){}}
+      try{if(!(mode==='live'&&(window.BAZAGO_LIVE||{}).vapid)&&document.hidden&&LS.get('osNotif',false)&&window.Notification&&Notification.permission==='granted')fresh.slice(0,3).forEach(n=>new Notification('BazaGo · #'+n.code,{body:n.text,tag:n.key}))}catch(e){}}
   }
   scheduleRender();
 }
@@ -3691,6 +3695,7 @@ async function liveBoot() {
   liveCompanyBoot();
   liveDriverBoot();
   livePlatformBoot();
+  livePushBoot();
   A.rgDone = LIVE_FLOW.rgDone; A.joinInvite = LIVE_FLOW.joinInvite;
   const baseDriverView = driverView, baseCompanyView = companyView;
   driverView = function () {
@@ -4534,6 +4539,131 @@ function livePlatformBoot() {
   pfBilling = () => baseBilling() + lvPfSettings();
   Object.assign(A, LIVE_PLATFORM);
   Object.assign(CHG, LIVE_PLATFORM_CHG);
+}
+
+/* =====================================================================
+   BazaGo · Βήμα 8ζ — ειδοποιήσεις push στο κινητό / στον υπολογιστή
+   • «Ενεργοποίηση ειδοποιήσεων στη συσκευή» → άδεια, εγγραφή συσκευής (save_push_subscription)
+   • Το κουμπί υπάρχει για όλους τους ρόλους στο καμπανάκι (και στο προφίλ πελάτη)
+   • Αποσύνδεση → η συσκευή διαγράφεται, για να μη λαμβάνει ειδοποιήσεις άλλου λογαριασμού
+   • Σύνδεσμος ειδοποίησης/email (?o=<παραγγελία>) → ανοίγει την παραγγελία
+   Το δημόσιο κλειδί VAPID μπαίνει στο config.js (vapid: '...').
+   ===================================================================== */
+
+const LV_DEEP = (() => { try { return new URLSearchParams(location.search).get('o'); } catch (e) { return null; } })();
+const lvVapid = () => ((window.BAZAGO_LIVE || {}).vapid || '').trim();
+const lvPushOk = () => 'serviceWorker' in navigator && 'PushManager' in window && 'Notification' in window;
+const lvIsIos = () => /iPhone|iPad|iPod/.test(navigator.userAgent);
+const lvStandalone = () => (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone === true;
+
+function lvB64(b64) {
+  const pad = '='.repeat((4 - (b64.length % 4)) % 4);
+  const raw = atob((b64 + pad).replace(/-/g, '+').replace(/_/g, '/'));
+  return Uint8Array.from(raw, (c) => c.charCodeAt(0));
+}
+
+async function lvPushSubscribe() {
+  const reg = await navigator.serviceWorker.register('sw.js');
+  await navigator.serviceWorker.ready;
+  let sub = await reg.pushManager.getSubscription();
+  if (sub) {   // αν άλλαξε το κλειδί VAPID, η παλιά εγγραφή δεν δουλεύει πια
+    const k = sub.options && sub.options.applicationServerKey;
+    const same = k && btoa(String.fromCharCode(...new Uint8Array(k))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '') === lvVapid().replace(/=+$/, '');
+    if (k && !same) { await sub.unsubscribe(); sub = null; }
+  }
+  if (!sub) sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: lvB64(lvVapid()) });
+  const j = sub.toJSON();
+  const { error } = await SB.rpc('save_push_subscription', {
+    p_endpoint: j.endpoint, p_p256dh: j.keys.p256dh, p_auth: j.keys.auth, p_user_agent: navigator.userAgent });
+  if (error) throw new Error(error.message);
+}
+
+async function lvPushForget(unsubscribe) {
+  try {
+    const reg = await navigator.serviceWorker.getRegistration();
+    const sub = reg && await reg.pushManager.getSubscription();
+    if (!sub) return;
+    if (SB && LV.user) await SB.from('push_subscriptions').delete().eq('endpoint', sub.endpoint);
+    if (unsubscribe) await sub.unsubscribe();
+  } catch (e) { /* */ }
+}
+
+async function lvOsNotif() {
+  if (!lvVapid()) return lvOsNotifBase();
+  if (LS.get('osNotif', false)) {
+    LS.set('osNotif', false); render();
+    await lvPushForget(true);
+    toast('Οι ειδοποιήσεις σε αυτή τη συσκευή σταμάτησαν');
+    return;
+  }
+  if (!lvPushOk()) {
+    toast(lvIsIos() && !lvStandalone()
+      ? 'Στο iPhone: Κοινή χρήση → «Προσθήκη στην οθόνη Αφετηρίας», άνοιξε το BazaGo από εκεί και ξαναπάτα εδώ.'
+      : 'Αυτός ο browser δεν υποστηρίζει ειδοποιήσεις. Θα τις βλέπεις στο καμπανάκι.');
+    return;
+  }
+  let p = 'default';
+  try { p = Notification.permission === 'granted' ? 'granted' : await Notification.requestPermission(); } catch (e) { /* */ }
+  if (p !== 'granted') {
+    toast(p === 'denied' ? 'Οι ειδοποιήσεις είναι μπλοκαρισμένες. Επίτρεψέ τες από τις ρυθμίσεις του browser για το app.bazago.gr.'
+                         : 'Δεν δόθηκε άδεια· θα βλέπεις τις ειδοποιήσεις στο καμπανάκι.');
+    return;
+  }
+  try {
+    await lvPushSubscribe();
+    LS.set('osNotif', true); render();
+    toast('Έτοιμο· θα λαμβάνεις ειδοποιήσεις και με κλειστή την εφαρμογή');
+  } catch (e) {
+    toast('Η ενεργοποίηση δεν ολοκληρώθηκε: ' + (e.message || e));
+  }
+}
+let lvOsNotifBase = null;
+
+// μετά από κάθε σύνδεση: η συσκευή ξαναγράφεται στον λογαριασμό που μπήκε (χωρίς ερώτηση, αφού υπάρχει ήδη άδεια)
+async function lvPushSync() {
+  if (!lvVapid() || !lvPushOk() || !LS.get('osNotif', false)) return;
+  if (Notification.permission !== 'granted') { LS.set('osNotif', false); return; }
+  try { await lvPushSubscribe(); } catch (e) { /* */ }
+}
+
+// σύνδεσμος ?o=<παραγγελία> από ειδοποίηση ή email
+let lvDeepDone = false;
+function lvOpenDeep() {
+  if (lvDeepDone || !LV_DEEP) return;
+  lvDeepDone = true;
+  try { history.replaceState(null, '', location.pathname); } catch (e) { /* */ }
+  const o = D.orders[LV_DEEP];
+  if (!o) return;
+  const roles = roleList().map(([r]) => r);
+  const role = o.customerId && o.customerId === LV.customerId && roles.includes('customer') ? 'customer'
+    : (LV.companies || []).includes(o.companyId) && roles.includes('company') ? 'company'
+    : roles.includes('driver') ? 'driver' : ui.role;
+  ui.role = role;
+  try { A.notifGo({ dataset: { v: LV_DEEP } }); } catch (e) { render(); }
+}
+
+function lvNotifFoot() {
+  if (!lvVapid()) return '';
+  const on = LS.get('osNotif', false);
+  return `<div style="padding:8px;border-top:1px solid var(--line)"><button class="btn sm ${on ? '' : 'primary'}" data-act="osNotif" style="width:100%">${
+    on ? 'Ειδοποιήσεις σε αυτή τη συσκευή: ενεργές · Διακοπή' : 'Ενεργοποίηση ειδοποιήσεων σε αυτή τη συσκευή'}</button></div>`;
+}
+
+function livePushBoot() {
+  lvOsNotifBase = A.osNotif;
+  A.osNotif = lvOsNotif;
+  const basePanel = notifPanel;
+  notifPanel = function () {
+    const h = basePanel();
+    return h.endsWith('</div>') ? h.slice(0, -6) + lvNotifFoot() + '</div>' : h + lvNotifFoot();
+  };
+  const baseAfter = liveAfterLogin;
+  liveAfterLogin = async function () {
+    await baseAfter();
+    if (LV.user) { lvOpenDeep(); lvPushSync(); }
+  };
+  const baseLogout = A.auLogout;
+  A.auLogout = async function () { await lvPushForget(false); return baseLogout.apply(this, arguments); };
 }
 
 if(location.hostname==='127.0.0.1')window.__bz={A,CHG,get D(){return D},get ui(){return ui},get LV(){return LV},render,patchCompany,save:(...a)=>save(...a)};
