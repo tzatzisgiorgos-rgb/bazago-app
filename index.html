@@ -1515,6 +1515,7 @@ function cOrder(){
     <span class="xs muted">Βοήθησε τον οδηγό με μια φωτογραφία του σημείου όπου θα μπει ο κάδος.</span>
     ${filesHtml(o.files||[],{del:'fileDel',oid:o.id})}
     ${(o.files||[]).length<4?`<label class="att-add" for="of-p-${o.id}">${icon.camera}<span>${(o.files||[]).length?'Πρόσθεσε κι άλλη φωτογραφία':'Φωτογραφία σημείου'}</span><input type="file" id="of-p-${o.id}" accept="image/*" data-chg="orderFile" data-v="${o.id}" data-k="spot"></label>`:''}</div>`);
+  if(mode==='live'&&typeof lvPinCard==='function'){const pc=lvPinCard(o);if(pc)actions.push(pc)}
   if(['pending','counter'].includes(st)){const wp=o.wastePhotos||[];actions.push(`<div class="card stack-s"><b>Φωτογραφίες υλικών${wp.length?' · '+wp.length:''}</b>
     <span class="xs muted">${wp.length?'Η εταιρία τις βλέπει για να σου πει αν υπάρχει επιπλέον χρέωση.':'Δεν έχεις ανεβάσει φωτογραφίες. Πρόσθεσέ τες, για να ξέρεις από πριν αν υπάρχει επιπλέον χρέωση.'}</span>
     ${filesHtml(wp)}${wp.length<6?`<label class="att-add" for="ow-${o.id}">${icon.camera}<span>Πρόσθεσε φωτογραφίες υλικών</span><input type="file" id="ow-${o.id}" accept="image/*" multiple data-chg="wasteAdd" data-v="${o.id}"></label>`:''}</div>`)}
@@ -3723,6 +3724,7 @@ async function liveBoot() {
       `<div class="footer-tools row-wrap between"><span class="xs muted">${esc(LV.user.email)}</span><span class="row-wrap"><button class="btn link" data-act="lgAccount">Λογαριασμός &amp; απόρρητο</button><button class="btn link" data-act="auLogout">Αποσύνδεση</button></span></div>`;
   };
   liveLegalBoot();
+  liveMapBoot();
   // σύνδεσμος από email (επιβεβαίωση λογαριασμού / νέος κωδικός)
   const fromMail = await SB.auth.fromUrl();
   if (fromMail.data || fromMail.error) history.replaceState(null, '', location.pathname);
@@ -4935,6 +4937,129 @@ function liveLegalBoot() {
   };
   const baseLogout = A.auLogout;
   A.auLogout = async function () { LG.need = false; LG.page = null; LG.accepted = null; return baseLogout.apply(this, arguments); };
+}
+
+/* =====================================================================
+   BazaGo · Βήμα 9β — Ακριβές σημείο τοποθέτησης στον χάρτη
+   • Πελάτης (σε αναμονή / πρόταση / επιβεβαιωμένη / ανατεθειμένη) και εταιρία (πάντα):
+     «Ορισμός σημείου στον χάρτη» → χάρτης δρόμων, η πινέζα μένει στο κέντρο,
+     μετακινείς τον χάρτη → set_order_location
+   • Ο οδηγός πλοηγείται σε αυτό το σημείο (Πλοήγηση → Google Maps με συντεταγμένες)
+   • Οι χρόνοι οδήγησης / ο προγραμματισμός χρησιμοποιούν αμέσως τη νέα θέση
+   Χάρτης: Leaflet + OpenStreetMap (φορτώνει μόνο όταν ανοίξει το παράθυρο)
+   ===================================================================== */
+
+var LVM = { el: null, map: null, loading: null };
+const LVM_EDIT = ['pending', 'counter', 'accepted', 'assigned'];
+const LVM_LIB = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/';
+
+function lvmLoad() {
+  if (window.L && window.L.map) return Promise.resolve();
+  if (LVM.loading) return LVM.loading;
+  LVM.loading = new Promise((res, rej) => {
+    const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = LVM_LIB + 'leaflet.min.css'; document.head.appendChild(l);
+    const s = document.createElement('script'); s.src = LVM_LIB + 'leaflet.min.js';
+    s.onload = () => res();
+    s.onerror = () => { LVM.loading = null; rej(new Error('Ο χάρτης δεν φόρτωσε. Έλεγξε τη σύνδεση και ξαναδοκίμασε.')); };
+    document.head.appendChild(s);
+  });
+  return LVM.loading;
+}
+
+const lvExact = (o) => (o.events || []).some((e) => /ακριβές σημείο/i.test(e.text || ''));
+
+// κάρτα στην παραγγελία του πελάτη
+function lvPinCard(o) {
+  if (!LVM_EDIT.includes(o.status)) return '';
+  const ex = lvExact(o);
+  return `<div class="card stack-s"><b>Σημείο στον χάρτη</b>
+    <span class="xs muted">${ex ? 'Ορίστηκε το ακριβές σημείο. Εκεί θα πλοηγηθεί ο οδηγός.'
+      : 'Η θέση βγήκε από τη διεύθυνση και μπορεί να απέχει λίγο. Δείξε στον χάρτη πού ακριβώς θα μπει ο κάδος.'}</span>
+    <button class="btn ${ex ? '' : 'primary'}" data-act="pinOpen" data-v="${o.id}" style="align-self:flex-start">${icon.mpin}${ex ? 'Αλλαγή σημείου' : 'Ορισμός σημείου στον χάρτη'}</button></div>`;
+}
+
+function lvPinClose() {
+  if (LVM.map) { try { LVM.map.remove(); } catch (e) { /* */ } }
+  if (LVM.el) LVM.el.remove();
+  LVM.map = null; LVM.el = null;
+  document.removeEventListener('keydown', lvPinKey);
+  document.body.style.overflow = '';
+}
+function lvPinKey(e) { if (e.key === 'Escape') lvPinClose(); }
+
+async function lvPinOpen(el) {
+  const id = el.dataset.v, o0 = D.orders[id];
+  if (!o0) return;
+  const o = Object.assign({ id }, o0), g = geoOf(o), exact = lvExact(o);
+  lvPinClose();
+  const box = document.createElement('div');
+  box.className = 'pinsheet';
+  box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Σημείο τοποθέτησης στον χάρτη');
+  box.style.cssText = 'position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column';
+  box.innerHTML = `
+    <div style="padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;justify-content:space-between">
+      <div style="min-width:0"><b>Σημείο τοποθέτησης</b><div class="xs muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.address || '')}${o.dimos ? ' · ' + esc(o.dimos) : ''}</div></div>
+      <button class="btn sm" data-pin="close" aria-label="Κλείσιμο">Άκυρο</button></div>
+    <div style="position:relative;flex:1;min-height:0">
+      <div class="pinmap" style="position:absolute;inset:0;background:#e9ecef"></div>
+      <div aria-hidden="true" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);z-index:500;pointer-events:none;color:var(--accent);filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">
+        <svg width="40" height="40" viewBox="0 0 24 24"><path fill="currentColor" stroke="#fff" stroke-width="1.2" d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6" fill="#fff"/></svg></div>
+      <div class="pinmsg small" style="position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:500;background:var(--card,#fff);color:var(--ink);padding:6px 10px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:calc(100% - 120px);text-align:center">Φόρτωση χάρτη…</div></div>
+    <div style="padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" data-pin="gps">Η θέση μου</button>
+      <button class="btn primary" data-pin="save" style="flex:1" disabled>Αποθήκευση σημείου</button></div>`;
+  document.body.appendChild(box);
+  document.body.style.overflow = 'hidden';
+  document.addEventListener('keydown', lvPinKey);
+  LVM.el = box;
+  const msg = box.querySelector('.pinmsg'), save = box.querySelector('[data-pin="save"]');
+  box.addEventListener('click', async (e) => {
+    const b = e.target.closest('[data-pin]'); if (!b) return;
+    e.preventDefault(); e.stopPropagation();
+    const k = b.dataset.pin;
+    if (k === 'close') { lvPinClose(); return; }
+    if (k === 'gps') {
+      if (!navigator.geolocation || !LVM.map) return;
+      msg.textContent = 'Εντοπισμός θέσης…'; msg.style.display = '';
+      navigator.geolocation.getCurrentPosition((p) => {
+        if (!LVM.map) return;
+        LVM.map.setView([p.coords.latitude, p.coords.longitude], 19);
+        msg.textContent = 'Μετακίνησε τον χάρτη αν χρειάζεται, ώστε η πινέζα να δείχνει το σημείο του κάδου';
+      }, () => { msg.textContent = 'Δεν βρέθηκε η θέση σου. Μετακίνησε τον χάρτη με το χέρι.'; },
+      { enableHighAccuracy: true, timeout: 12000, maximumAge: 30000 });
+      return;
+    }
+    if (k === 'save' && LVM.map) {
+      const c = LVM.map.getCenter();
+      save.disabled = true; save.textContent = 'Αποθήκευση…';
+      const ok = await lvRpc('set_order_location', { oid: id, p_lat: +c.lat.toFixed(6), p_lng: +c.lng.toFixed(6) }, 'Το σημείο αποθηκεύτηκε');
+      if (ok) lvPinClose(); else { save.disabled = false; save.textContent = 'Αποθήκευση σημείου'; }
+    }
+  });
+  try { await lvmLoad(); } catch (e) { toast(e.message); lvPinClose(); return; }
+  if (LVM.el !== box) return;
+  const map = window.L.map(box.querySelector('.pinmap'), { zoomControl: true, attributionControl: true }).setView([g.lat, g.lng], exact ? 19 : 17);
+  window.L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(map);
+  LVM.map = map;
+  setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* */ } }, 50);
+  msg.textContent = exact ? 'Μετακίνησε τον χάρτη για να αλλάξεις το σημείο' : 'Μετακίνησε τον χάρτη ώστε η πινέζα να δείχνει πού θα μπει ο κάδος';
+  save.disabled = false;
+  map.once('movestart', () => { msg.style.display = 'none'; });
+}
+
+function liveMapBoot() {
+  A.pinOpen = lvPinOpen;
+  // κουμπί και στην κάρτα αιτήματος της εταιρίας (η εταιρία μπορεί να διορθώσει το σημείο πάντα)
+  const baseReq = reqCard;
+  reqCard = function (o, co) {
+    const h = baseReq(o, co);
+    if (!o || !o.id || ['completed', 'cancelled', 'rejected', 'declined'].includes(o.status)) return h;
+    const i = h.lastIndexOf('</article>');
+    if (i < 0) return h;
+    const btn = `<button class="btn sm" data-act="pinOpen" data-v="${o.id}" style="align-self:flex-start">${icon.mpin}${lvExact(o) ? 'Σημείο στον χάρτη ✓' : 'Σημείο στον χάρτη'}</button>`;
+    return h.slice(0, i) + btn + h.slice(i);
+  };
 }
 
 if(location.hostname==='127.0.0.1')window.__bz={A,CHG,get D(){return D},get ui(){return ui},get LV(){return LV},render,patchCompany,save:(...a)=>save(...a)};
