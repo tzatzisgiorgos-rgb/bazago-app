@@ -1394,6 +1394,7 @@ function cBook(){
    ${line(isBin?'Κάδος':'Κοντ.',esc(sizeLabel(c.size))+' · '+esc(matName(c.mat))+(perm?' · μόνιμος':''),esc(sizeSpec(c.size)))}
    ${line('Πού',esc(p?p.name:c.addr),esc((p?c.addr+' · ':'')+placeLabel(c.dimos)))}
    <button class="btn link" data-act="cTab" data-v="search" style="align-self:flex-start">Αλλαγή στοιχείων</button></div>
+  ${mode==='live'&&ar&&typeof lvBookPin==='function'?lvBookPin():''}
   ${!ar?`<div class="card flat" style="color:var(--accent-ink)">Η ${esc(co.name)} δεν εξυπηρετεί τον Δήμο ${esc(c.dimos||'')}. Διάλεξε άλλο έργο ή άλλη εταιρία.</div>`:''}
   ${ar?bookDays(c,days,perm):''}
   ${ar&&!free?`<div class="card flat" style="color:var(--accent-ink)">Μόλις δεσμεύτηκε ο τελευταίος κάδος ${esc(sizeLabel(c.size))}. Διάλεξε άλλη εταιρία ή μέγεθος.</div>`:''}
@@ -3908,6 +3909,8 @@ const LIVE_CUSTOMER = {
       toast('Αποστολή…');
       const { data: o, error } = await SB.rpc('place_order', { p: req });
       if (error) { toast(error.message); LV.days = {}; render(); return; }
+      if (lvBookPinGet()) { try { await lvBookPinApply(o.id, p && p.id); } catch (e) { /* το σημείο ορίζεται και από την παραγγελία */ } }
+      else LVM.draft = null;
       const photos = (c.wastePhotos || []).slice(0, 6);
       if (photos.length) await lvUpload(o.id, 'waste_photo', photos);
       Object.assign(ui.c, { notes: '', waste: '', wastePhotos: [], terms: false, extras: [], order: o.id, back: [], view: 'order' });
@@ -4987,10 +4990,9 @@ function lvPinClose() {
 }
 function lvPinKey(e) { if (e.key === 'Escape') lvPinClose(); }
 
-async function lvPinOpen(el) {
-  const id = el.dataset.v, o0 = D.orders[id];
-  if (!o0) return;
-  const o = Object.assign({ id }, o0), g = geoOf(o), exact = lvExact(o);
+// οθόνη χάρτη· opts = { lat, lng, exact, sub, onSave(lat, lng) → true αν πέτυχε }
+async function lvPinSheet(opts) {
+  const g = { lat: opts.lat, lng: opts.lng }, exact = !!opts.exact;
   lvPinClose();
   const box = document.createElement('div');
   box.className = 'pinsheet';
@@ -4998,7 +5000,7 @@ async function lvPinOpen(el) {
   box.style.cssText = 'position:fixed;inset:0;z-index:1000;background:var(--bg);display:flex;flex-direction:column';
   box.innerHTML = `
     <div style="padding:12px 16px;border-bottom:1px solid var(--line);display:flex;gap:10px;align-items:center;justify-content:space-between">
-      <div style="min-width:0"><b>Σημείο τοποθέτησης</b><div class="xs muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(o.address || '')}${o.dimos ? ' · ' + esc(o.dimos) : ''}</div></div>
+      <div style="min-width:0"><b>Σημείο τοποθέτησης</b><div class="xs muted" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(opts.sub || '')}</div></div>
       <button class="btn sm" data-pin="close" aria-label="Κλείσιμο">Άκυρο</button></div>
     <div style="position:relative;flex:1;min-height:0">
       <div class="pinmap" style="position:absolute;inset:0;background:#e9ecef"></div>
@@ -5032,7 +5034,7 @@ async function lvPinOpen(el) {
     if (k === 'save' && LVM.map) {
       const c = LVM.map.getCenter();
       save.disabled = true; save.textContent = 'Αποθήκευση…';
-      const ok = await lvRpc('set_order_location', { oid: id, p_lat: +c.lat.toFixed(6), p_lng: +c.lng.toFixed(6) }, 'Το σημείο αποθηκεύτηκε');
+      const ok = await opts.onSave(+c.lat.toFixed(6), +c.lng.toFixed(6));
       if (ok) lvPinClose(); else { save.disabled = false; save.textContent = 'Αποθήκευση σημείου'; }
     }
   });
@@ -5048,8 +5050,40 @@ async function lvPinOpen(el) {
   map.once('movestart', () => { msg.style.display = 'none'; });
 }
 
+function lvPinOpen(el) {
+  const id = el.dataset.v, o0 = D.orders[id];
+  if (!o0) return;
+  const o = Object.assign({ id }, o0), g = geoOf(o);
+  return lvPinSheet({ lat: g.lat, lng: g.lng, exact: lvExact(o), sub: (o.address || '') + (o.dimos ? ' · ' + o.dimos : ''),
+    onSave: (lat, lng) => lvRpc('set_order_location', { oid: id, p_lat: lat, p_lng: lng }, 'Το σημείο αποθηκεύτηκε') });
+}
+
+// στην κράτηση: το σημείο κρατιέται και γράφεται μόλις σταλεί το αίτημα
+const lvBookKey = () => { const c = ui.c; return (c.project || '') + '|' + (c.addr || '') + '|' + (c.dimos || ''); };
+function lvBookPinGet() { const d = LVM.draft; return d && d.key === lvBookKey() ? d : null; }
+function lvBookPin() {
+  const d = lvBookPinGet();
+  return `<div class="card stack-s"><b>Σημείο τοποθέτησης</b>
+    <span class="xs muted">${d ? 'Ορίστηκε στον χάρτη ✓ Εκεί θα πλοηγηθεί ο οδηγός.' : 'Δείξε στον χάρτη πού ακριβώς θα μπει ο κάδος, για να βρει ο οδηγός το σημείο (προαιρετικό · μπορείς και αργότερα από την παραγγελία).'}</span>
+    <button class="btn ${d ? '' : 'primary'}" data-act="pinBook" style="align-self:flex-start">${icon.mpin}${d ? 'Αλλαγή σημείου' : 'Ορισμός σημείου στον χάρτη'}</button></div>`;
+}
+function lvPinBook() {
+  const c = ui.c, d = lvBookPinGet(), g = d || cWhereGeo(), key = lvBookKey();
+  return lvPinSheet({ lat: g.lat, lng: g.lng, exact: !!d, sub: (c.addr || '') + (c.dimos ? ' · ' + c.dimos : ''),
+    onSave: (lat, lng) => { LVM.draft = { key, lat, lng }; render(); toast('Το σημείο κρατήθηκε· θα σταλεί με το αίτημα'); return true; } });
+}
+// μετά το place_order: σημείο στην παραγγελία και στο έργο (για τις επόμενες παραγγελίες)
+async function lvBookPinApply(orderId, projectId) {
+  const d = LVM.draft;
+  if (!d || !orderId) return;
+  LVM.draft = null;
+  await SB.rpc('set_order_location', { oid: orderId, p_lat: d.lat, p_lng: d.lng });
+  if (projectId) await SB.from('projects').update({ lat: d.lat, lng: d.lng }).eq('id', projectId);
+}
+
 function liveMapBoot() {
   A.pinOpen = lvPinOpen;
+  A.pinBook = lvPinBook;
   // κουμπί και στην κάρτα αιτήματος της εταιρίας (η εταιρία μπορεί να διορθώσει το σημείο πάντα)
   const baseReq = reqCard;
   reqCard = function (o, co) {
