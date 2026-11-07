@@ -3649,6 +3649,7 @@ async function liveLoad() {
 
   Object.assign(D, { companies, drivers, orders, customer: customer || { name: '', favs: [], profile: {}, projects: [] } });
   lvTracks(); lvGpsSync();
+  setTimeout(lvWarm, 1500);                    // χρόνοι οδήγησης για τις ημέρες της εταιρίας (μετά τη φόρτωση)
   loaded = NEED; LV.loading = false;
   if (!primed) prime(); else onData();
   render();
@@ -4324,6 +4325,46 @@ function liveCompanyBoot() {
   lvMoveJob = lvMoveJobLive;
   Object.assign(A, LIVE_COMPANY);
   Object.keys(LIVE_COMPANY_CHG).forEach((k) => { if (k in CHG) CHG[k] = LIVE_COMPANY_CHG[k]; });
+}
+
+/* ---------- πραγματικοί χρόνοι οδήγησης (Edge Function «maps» → warm_day) ----------
+   Για κάθε ημέρα των επόμενων 7 με εργασίες της εταιρίας, ο server μετρά μία φορά τους χρόνους
+   ανάμεσα σε όλες τις στάσεις (OpenRouteService, φορτηγό) και τους κρατά (travel_cache).
+   Ξαναμετρά μόνο όταν αλλάξουν οι στάσεις της ημέρας. Αν η υπηρεσία δεν είναι ρυθμισμένη, σταματά αθόρυβα. */
+const lvWarmSig = new Map();
+let lvWarmOff = false, lvWarmBusy = false, lvWarmFails = 0;
+function lvWarmPlan() {
+  const own = new Set(LV.companies || []);
+  if (!own.size) return [];
+  const from = new Date(), to = new Date(); to.setDate(to.getDate() + 7);
+  const iso = (d) => d.toISOString().slice(0, 10), lo = iso(from), hi = iso(to);
+  const days = {};
+  const add = (cid, d, o) => { if (!d || d < lo || d > hi) return; const k = cid + '|' + d; (days[k] = days[k] || []).push(o); };
+  Object.entries(D.orders).forEach(([id, o]) => {
+    if (!own.has(o.companyId) || ['cancelled', 'rejected', 'declined', 'completed'].includes(o.status)) return;
+    const g = o.geo ? `${o.geo.lat.toFixed(3)},${o.geo.lng.toFixed(3)}` : (o.tk || '');
+    add(o.companyId, o.date, id + '@' + g);
+    add(o.companyId, o.pickupDate, id + 'p@' + g);
+    if (o.swap) add(o.companyId, o.swap.date, id + 's@' + g);
+  });
+  return Object.entries(days).map(([k, v]) => [k, v.sort().join(';')]).filter(([k, sig]) => lvWarmSig.get(k) !== sig);
+}
+async function lvWarm() {
+  if (lvWarmOff || lvWarmBusy || !SB || !LV.user) return;
+  const todo = lvWarmPlan();
+  if (!todo.length) return;
+  lvWarmBusy = true;
+  try {
+    for (const [k, sig] of todo) {
+      const [cid, date] = k.split('|');
+      const { data, error } = await SB.functions.invoke('maps', { body: { action: 'warm_day', company_id: cid, date } });
+      const msg = (error && (error.message || error)) || (data && data.error) || '';
+      if (/Δεν έχει οριστεί|not found|404|Άγνωστη/i.test(String(msg))) { lvWarmOff = true; break; }   // η υπηρεσία δεν έχει στηθεί ακόμα
+      if (!msg) lvWarmSig.set(k, sig);
+      else if (++lvWarmFails >= 3) { lvWarmOff = true; break; }
+    }
+  } catch (e) { /* δοκιμάζει ξανά στην επόμενη φόρτωση */ }
+  lvWarmBusy = false;
 }
 
 /* =====================================================================
