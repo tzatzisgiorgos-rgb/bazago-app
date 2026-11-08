@@ -2389,7 +2389,7 @@ function leavePanel(did,d,co,ds){const today=ymd(new Date());const all=leavesOf(
       ${ov.length?`<span class="xs" style="color:var(--accent-ink)">Την ίδια περίοδο λείπει και ${ov.map(([,x])=>esc(x.name)).join(', ')}.</span>`:''}
       ${dues.length?`<span class="xs muted">Καλή ευκαιρία για το όχημα όσο είναι διαθέσιμο: ${esc(dues.join(' · '))}.</span>`:''}</div>`};
   const f=lvF;const sel=(k,opts)=>opts.map(([x,t])=>`<option value="${x}" ${f[k]===x?'selected':''}>${esc(t)}</option>`).join('');
-  return `<div class="lv-panel stack-s">${cur.length?cur.map(row).join(''):'<span class="small muted">Δεν έχει καταχωρισμένες άδειες.</span>'}
+  return `<div class="lv-panel stack-s">${cur.length?cur.map(row).join(''):'<span class="small muted">Δεν έχει καταχωρημένες άδειες.</span>'}
    <div class="card flat stack-s"><b class="small">Νέα άδεια</b>
     <div class="tiles" style="grid-template-columns:repeat(2,minmax(0,1fr))"><div class="field"><label class="label" for="lv-from">Από</label><input type="date" class="input sm" id="lv-from" data-chg="lvSet" data-k="from" value="${esc(f.from)}" min="${today}"></div>
      <div class="field"><label class="label" for="lv-to">Έως και</label><input type="date" class="input sm" id="lv-to" data-chg="lvSet" data-k="to" value="${esc(f.to)}" min="${esc(f.from||today)}"></div>
@@ -2397,7 +2397,7 @@ function leavePanel(did,d,co,ds){const today=ymd(new Date());const all=leavesOf(
      <div class="field"><label class="label" for="lv-note">Σημείωση</label><input class="input sm" id="lv-note" data-chg="lvSet" data-k="note" value="${esc(f.note)}" placeholder="προαιρετικά"></div></div>
     ${d.vehicle?`<span class="xs muted">Όσο λείπει, το ${esc(d.vehicle)} φαίνεται διαθέσιμο, χωρίς οδηγό, και λαμβάνεις ειδοποίηση. Αν θέλεις να το οδηγήσει κάποιος άλλος, τον ορίζεις από τα Οχήματα.</span>`:''}
     ${others.length?`<label class="check small"><input type="checkbox" data-chg="lvAutoSet" ${co.lvAuto?'checked':''}><span>Μεταφορά των εργασιών του αυτόματα σε άλλους οδηγούς<br><span class="xs muted">Αλλιώς λαμβάνεις ειδοποίηση και τις μοιράζεις εσύ.</span></span></label>`:''}
-    <button class="btn dark" data-act="lvAdd" data-v="${did}" style="align-self:flex-start">Καταχώριση</button>
+    <button class="btn dark" data-act="lvAdd" data-v="${did}" style="align-self:flex-start">Καταχώρηση</button>
     <span class="xs muted">Όσο λείπει, ο οδηγός δεν εμφανίζεται στις αναθέσεις και η αυτόματη ανάθεση τον παρακάμπτει.</span></div>
    ${past.length?`<details class="st-todo"><summary><span class="grow small">Προηγούμενες (${past.length})</span></summary><div class="stack-s" style="margin-top:8px">${past.slice(0,12).map(l=>`<div class="kv small"><span>${esc(LEAVE_T[l.type]||'Άδεια')} · ${esc(lvRange(l))}</span><span class="num muted">${lvDays(l)} ημ.</span></div>`).join('')}</div></details>`:''}</div>`}
 let joinOpen=false;const joinF={code:''};
@@ -2461,7 +2461,7 @@ function driverView(){
   if(tab==='shift'){const join=joinOpen?`<div class="card stack-s"><b>Σύνδεση με πρόσκληση</b><span class="xs muted">Γράψε τον κωδικό που σου έστειλε η εταιρία.</span><div class="doc-add"><label class="sr" for="dr-code">Κωδικός πρόσκλησης</label><input class="input sm" id="dr-code" data-in="joinF.code" value="${esc(joinF.code)}" placeholder="6 ψηφία" inputmode="numeric" maxlength="6"><button class="btn primary" data-act="joinInvite">Σύνδεση</button></div><button class="btn link" data-act="joinToggle" style="align-self:flex-start">Άκυρο</button></div>`:`<button class="btn link" data-act="joinToggle" style="align-self:flex-start">Έχεις κωδικό πρόσκλησης από εταιρία;</button>`;
     return h+`<label class="card check" style="align-items:center${d.online?'':';border:2px solid var(--accent)'}"><input type="checkbox" id="dr-online" data-chg="drOnline" ${d.online?'checked':''}><span class="grow"><b>${d.online?'Σε υπηρεσία':'Εκτός υπηρεσίας'}</b><br><span class="small muted">${d.online?'Η εταιρία μπορεί να σου αναθέσει εργασίες.':'Δεν λαμβάνεις νέες αναθέσεις. Άνοιξέ το όταν ξεκινάς βάρδια.'}</span></span></label>
      ${drVehicle(d)}
-     ${(()=>{const today=ymd(new Date());const L=leavesOf(d).filter(l=>l.to>=today);return L.length?`<div class="card stack-s"><b>Οι άδειές μου</b>${L.map(l=>`<div class="kv small"><span>${esc(LEAVE_T[l.type]||'Άδεια')} · ${esc(lvRange(l))}</span><span class="num muted">${lvDays(l)} ${lvDays(l)===1?'ημέρα':'ημέρες'}</span></div>`).join('')}<span class="xs muted">Τις καταχωρίζει η εταιρία.</span></div>`:''})()}
+     ${(()=>{const today=ymd(new Date());const L=leavesOf(d).filter(l=>l.to>=today);return L.length?`<div class="card stack-s"><b>Οι άδειές μου</b>${L.map(l=>`<div class="kv small"><span>${esc(LEAVE_T[l.type]||'Άδεια')} · ${esc(lvRange(l))}</span><span class="num muted">${lvDays(l)} ${lvDays(l)===1?'ημέρα':'ημέρες'}</span></div>`).join('')}<span class="xs muted">Τις καταχωρεί η εταιρία.</span></div>`:''})()}
      <div class="field"><label class="label" for="dr-sel">Οδηγός (δοκιμή)</label><select class="input sm" id="dr-sel" data-chg="drSel">${Object.entries(D.drivers).map(([k,x])=>`<option value="${k}" ${k===did?'selected':''}>${esc(x.name)} · ${esc((D.companies[x.companyId]||{}).initials||'')}</option>`).join('')}</select><span class="xs muted">Στην κανονική εφαρμογή κάθε οδηγός μπαίνει με τον δικό του λογαριασμό.</span></div>${join}</div>`}
   if(tab==='plan'){const today=ymd(new Date());const tp=planFor(did,today);const nwd=tp&&tp.over&&tp.over.length?nextWorkDay(co).id:null;const days=[...new Set(jobs.map(jobDateOf).filter(x=>x&&x>today).concat(nwd?[nwd]:[]))].sort();
     h+=`<p class="small muted">Η σειρά των εργασιών, όπως τη βελτιστοποιεί το σύστημα. Στο «Τώρα» βλέπεις μόνο την τρέχουσα.</p>`;
@@ -2667,9 +2667,9 @@ const A={
     const ov=leaveOverlap(d,f.from,f.to);if(ov){toast('Υπάρχει ήδη άδεια '+lvRange(ov));return}
     const l={id:'lv'+Date.now().toString(36),from:f.from,to:f.to,type:f.type||'leave',note:String(f.note||'').trim(),at:nowIso()};
     save('drivers',did,Object.assign(clone(d),{leaves:leavesOf(d).concat([l])}));Object.assign(lvF,{from:'',to:'',type:'leave',note:''});
-    const n=leaveJobs(did,l).length;if(!n){toast('Η άδεια καταχωρίστηκε');return}
-    if((D.companies[d.companyId]||{}).lvAuto){const r=lvAutoMove(did,l);toast('Καταχωρίστηκε. '+r.moved+(r.moved===1?' εργασία μεταφέρθηκε':' εργασίες μεταφέρθηκαν')+' αυτόματα'+(r.left.length?' · '+r.left.length+' θέλουν δική σου επιλογή':''))}
-    else toast('Καταχωρίστηκε. '+n+(n===1?' προγραμματισμένη εργασία θέλει':' προγραμματισμένες εργασίες θέλουν')+' άλλον οδηγό')},
+    const n=leaveJobs(did,l).length;if(!n){toast('Η άδεια καταχωρήθηκε');return}
+    if((D.companies[d.companyId]||{}).lvAuto){const r=lvAutoMove(did,l);toast('Καταχωρήθηκε. '+r.moved+(r.moved===1?' εργασία μεταφέρθηκε':' εργασίες μεταφέρθηκαν')+' αυτόματα'+(r.left.length?' · '+r.left.length+' θέλουν δική σου επιλογή':''))}
+    else toast('Καταχωρήθηκε. '+n+(n===1?' προγραμματισμένη εργασία θέλει':' προγραμματισμένες εργασίες θέλουν')+' άλλον οδηγό')},
   lvAuto(el){const did=el.dataset.v;const l=leavesOf(D.drivers[did]).find(x=>x.id===el.dataset.l);if(!l)return;const r=lvAutoMove(did,l);
     toast(r.moved?(r.moved+(r.moved===1?' εργασία μεταφέρθηκε':' εργασίες μεταφέρθηκαν')+(r.left.length?' · '+r.left.length+' χωρίς διαθέσιμο οδηγό':'')):'Κανένας διαθέσιμος οδηγός με κατάλληλο όχημα')},
   lvMoveSg(el){const o=Object.assign({id:el.dataset.v},D.orders[el.dataset.v]);lvMoveJob(o,el.dataset.d);toast('#'+o.code+' πήγε στον οδηγό '+D.drivers[el.dataset.d].name)},
@@ -2708,7 +2708,7 @@ const A={
     patchOrder(id,x=>{x.status=own?'assigned':'accepted';if(own){x.driverId=own;x.plate=(D.drivers[own]||{}).vehicle||''}x.binCode=b.code;x.slot=slot;ev(x,'company','Η '+co.name+' επιβεβαίωσε: '+x.dateLabel+', '+slot+' · κάδος '+b.code)});delete reqForm[id];toast(own?'Ο πελάτης ενημερώθηκε. Η παράδοση μπήκε στις διαδρομές σου.':'Ο πελάτης ενημερώθηκε για '+o.dateLabel+', '+slot)},
   weighCharge(el){const id=el.dataset.v;const f=reqForm[id]||{};const w=Math.round((+String(f.wt||'').replace(',','.')||0)*100)/100;if(!(w>0)){toast('Γράψε το καθαρό βάρος σε τόνους');return}
     patchOrder(id,x=>{const net=Math.round(w*x.tonRate*100)/100;const prev=x.tonCharge?Math.round(x.tonCharge*1.24):0;const g=Math.round(net*1.24);x.weighT=w;x.tonCharge=net;x.total=(x.total||0)-prev+g;
-      ev(x,'company','Ζυγολόγιο: '+tonTxt(w)+' τ × '+tonTxt(x.tonRate)+' €/τ = '+eur(net)+' + ΦΠΑ. Επιπλέον χρέωση διαχείρισης '+eur(g)+'.')});delete reqForm[id];toast('Η χρέωση καταχωρίστηκε και ο πελάτης ενημερώθηκε')},
+      ev(x,'company','Ζυγολόγιο: '+tonTxt(w)+' τ × '+tonTxt(x.tonRate)+' €/τ = '+eur(net)+' + ΦΠΑ. Επιπλέον χρέωση διαχείρισης '+eur(g)+'.')});delete reqForm[id];toast('Η χρέωση καταχωρήθηκε και ο πελάτης ενημερώθηκε')},
   reweigh(el){const id=el.dataset.v;reqForm[id]=Object.assign(reqForm[id]||{},{reweigh:true,wt:String((D.orders[id]||{}).weighT||'')});render()},
   reqFeeMode(el){const id=el.dataset.v;reqForm[id]=Object.assign(reqForm[id]||{},{feeMode:el.dataset.m});render()},
   reqMode(el){const id=el.dataset.v;reqForm[id]=Object.assign(reqForm[id]||{},{mode:el.dataset.m});render()},
@@ -3846,7 +3846,7 @@ async function lvSaveCustomer(c) {
   if (row.name === null) delete row.name;
   const jobs = [SB.from('customers').update(row).eq('id', LV.customerId)];
 
-  // έργα: νέα → καταχώριση, όσα αφαιρέθηκαν → αρχειοθέτηση
+  // έργα: νέα → καταχώρηση, όσα αφαιρέθηκαν → αρχειοθέτηση
   const had = new Set((me.projects || []).map((x) => x.id)), has = new Set((c.projects || []).map((x) => x.id));
   (c.projects || []).filter((x) => !had.has(x.id)).forEach((x) => jobs.push(lvNewProject(x)));
   [...had].filter((id) => !has.has(id)).forEach((id) => jobs.push(SB.from('projects').update({ archived: true }).eq('id', id)));
@@ -4187,7 +4187,7 @@ async function lvSaveDriver(key, n) {
 /* μηνύματα της βάσης που δεν είναι για τον χρήστη → απλά ελληνικά */
 function lvMsg(m) {
   m = String(m || '');
-  if (/duplicate key|unique/i.test(m)) return 'Υπάρχει ήδη (διπλή καταχώριση)';
+  if (/duplicate key|unique/i.test(m)) return 'Υπάρχει ήδη (διπλή καταχώρηση)';
   if (/conflicting key value violates exclusion|exclusion constraint/i.test(m)) return 'Η άδεια επικαλύπτει άλλη άδεια του οδηγού';
   if (/row-level security|permission denied/i.test(m)) return 'Δεν έχεις δικαίωμα για αυτή την αλλαγή';
   if (/foreign key/i.test(m)) return 'Δεν γίνεται: χρησιμοποιείται σε παραγγελίες';
@@ -4238,7 +4238,7 @@ const LIVE_COMPANY = {
   weighCharge(el) {
     const id = el.dataset.v, f = reqForm[id] || {}, w = Math.round((+String(f.wt || '').replace(',', '.') || 0) * 100) / 100;
     if (!(w > 0)) { toast('Γράψε το καθαρό βάρος σε τόνους'); return; }
-    return lvRpc('set_weight', { oid: id, p_tonnes: w }, 'Η χρέωση καταχωρίστηκε και ο πελάτης ενημερώθηκε').then((ok) => { if (ok) delete reqForm[id]; });
+    return lvRpc('set_weight', { oid: id, p_tonnes: w }, 'Η χρέωση καταχωρήθηκε και ο πελάτης ενημερώθηκε').then((ok) => { if (ok) delete reqForm[id]; });
   },
 
   resched(el) {
@@ -5558,7 +5558,7 @@ function lcoView() {
       ${co.solo || !drivers.length ? '' : f('lco-drv', 'Οδηγός (προαιρετικό · αλλιώς ανάθεση αργότερα)', `<select class="input" id="lco-drv" data-chg="lcoSet" data-k="driver"><option value="">Αργότερα</option>${drivers.map(([k, d]) => `<option value="${k}" ${LCO.driver === k ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>`)}
       ${f('lco-notes', 'Σημείωση (προαιρετικό)', `<textarea class="input" id="lco-notes" rows="2" data-in="lco.notes" placeholder="π.χ. είσοδος από το πλάι, κλειδί στον φύλακα">${esc(LCO.notes)}</textarea>`)}</div>
     ${LCO.err ? `<div class="alert" role="alert">${esc(LCO.err)}</div>` : ''}
-    <button class="btn primary big" data-act="lcoSubmit" ${LCO.busy ? 'disabled' : ''}>${LCO.busy ? 'Καταχώριση…' : 'Καταχώριση παραγγελίας' + (q ? ' · ' + eur(q.total) : '')}</button>
+    <button class="btn primary big" data-act="lcoSubmit" ${LCO.busy ? 'disabled' : ''}>${LCO.busy ? 'Καταχώρηση…' : 'Καταχώρηση παραγγελίας' + (q ? ' · ' + eur(q.total) : '')}</button>
     <span class="xs muted">Η παραγγελία χρεώνεται με την προμήθεια της πλατφόρμας όπως όλες. ${LCO.email.trim() ? 'Ο πελάτης θα λάβει email επιβεβαίωσης και ενημερώσεις.' : 'Χωρίς email ο πελάτης δεν λαμβάνει ενημερώσεις από το BazaGo.'}</span></div>`;
 }
 
@@ -5586,17 +5586,17 @@ const LIVE_CO_ORDER = {
     if (error) { LCO.err = error.message; render(); return; }
     const o = Array.isArray(data) ? data[0] : data;
     LCO.open = false;
-    toast('Η παραγγελία #' + (o && o.code) + ' καταχωρίστηκε');
+    toast('Η παραγγελία #' + (o && o.code) + ' καταχωρήθηκε');
     await liveLoad();
     if (o && D.orders[o.id]) A.coOpenReq({ dataset: { v: o.id } }); else render();
   },
   lcoPickup(el) {
     const id = el.dataset.v;
-    return lvOnce('lp' + id, () => lvRpc('request_pickup', { oid: id }, 'Η αποκομιδή καταχωρίστηκε για λογαριασμό του πελάτη'));
+    return lvOnce('lp' + id, () => lvRpc('request_pickup', { oid: id }, 'Η αποκομιδή καταχωρήθηκε για λογαριασμό του πελάτη'));
   },
   lcoSwap(el) {
     const id = el.dataset.v, o = D.orders[id];
-    return lvOnce('ls' + id, () => lvRpc('request_swap', { oid: id, p_size: o.size, p_material: o.mat, p_note: 'Από τηλέφωνο/email του πελάτη' }, 'Η αντικατάσταση καταχωρίστηκε για λογαριασμό του πελάτη'));
+    return lvOnce('ls' + id, () => lvRpc('request_swap', { oid: id, p_size: o.size, p_material: o.mat, p_note: 'Από τηλέφωνο/email του πελάτη' }, 'Η αντικατάσταση καταχωρήθηκε για λογαριασμό του πελάτη'));
   },
 };
 
@@ -5619,7 +5619,7 @@ function liveCompanyOrderBoot() {
     const i = h.lastIndexOf('</article>');
     if (i < 0) return h;
     let add = '';
-    if (o.source === 'company') add += '<span class="chip t-info" style="align-self:flex-start">Καταχώριση από την εταιρία (τηλέφωνο/email)</span>';
+    if (o.source === 'company') add += '<span class="chip t-info" style="align-self:flex-start">Καταχώρηση από την εταιρία (τηλέφωνο/email)</span>';
     if (o.status === 'onsite') {
       add += `<div class="row-wrap" style="gap:8px"><button class="btn sm" data-act="lcoPickup" data-v="${o.id}">Ο πελάτης ζήτησε αποκομιδή</button>`
         + (o.perm ? '' : `<button class="btn sm" data-act="lcoSwap" data-v="${o.id}">Ο πελάτης ζήτησε αντικατάσταση</button>`) + '</div>';
