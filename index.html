@@ -1270,17 +1270,17 @@ function suggestBig(q){
   if(q.trim().length>=3)out.push({t:'manual',main:'Χρήση «'+q.trim()+'»',sub:'Δεν βρίσκεις τη διεύθυνση; Θα διαλέξεις μόνο τον δήμο.',ic:icon.search});
   return out;
 }
-function addrSearch(k){loadAddr();const t=addrTarget(k);const q=t.q||'';const big=ADDR&&!ADDR.failed;const sugg=q.trim().length>=2?(big?suggestBig(q):suggest(q)):[];acCache[k]=sugg;const busy=locating===k;
+function addrSearch(k){loadAddr();const t=addrTarget(k);const q=t.q||'';const big=ADDR&&!ADDR.failed;const lvs=mode==='live'&&typeof lvaSuggest==='function'?lvaSuggest(k,q):null;const sugg=lvs||(q.trim().length>=2?(big?suggestBig(q):suggest(q)):[]);acCache[k]=sugg;const busy=locating===k;
   return `<div class="ac"><div class="ac-row"><div class="search-box grow"><label class="sr" for="ac-${k}">Αναζήτηση διεύθυνσης</label>${icon.search}<input class="input" id="ac-${k}" data-in="${k}.q" data-live="1" data-ac="${k}" value="${esc(q)}" placeholder="Αναζήτηση διεύθυνσης, π.χ. Λαζαράκη 30" autocomplete="off" role="combobox" aria-expanded="${sugg.length>0}" aria-controls="acl-${k}"></div>
   <button class="btn loc" data-act="acLoc" data-k="${k}" ${busy?'disabled':''} aria-label="Χρήση της τοποθεσίας μου">${icon.locate}<span>${busy?'Εντοπισμός…':'Τοποθεσία μου'}</span></button></div>
-  ${sugg.length?`<div class="ac-list" id="acl-${k}" role="listbox">${sugg.map((s,i)=>`<button class="ac-it" role="option" data-act="acPick" data-k="${k}" data-i="${i}">${s.ic||icon.mpin}<span class="grow"><b>${esc(s.main)}</b><br><span class="xs muted">${esc(s.sub)}</span></span></button>`).join('')}${!big&&addrLoading?'<div class="ac-it xs muted" style="min-height:40px">Φόρτωση όλων των διευθύνσεων της Ελλάδας…</div>':''}</div>`:''}</div>`}
+  ${sugg.length?`<div class="ac-list" id="acl-${k}" role="listbox">${sugg.map((s,i)=>`<button class="ac-it" role="option" data-act="acPick" data-k="${k}" data-i="${i}">${s.ic||icon.mpin}<span class="grow"><b>${esc(s.main)}</b><br><span class="xs muted">${esc(s.sub)}</span></span></button>`).join('')}${lvs&&lvaBusy(k)?'<div class="ac-it xs muted" style="min-height:40px">Αναζήτηση…</div>':''}${!lvs&&!big&&addrLoading?'<div class="ac-it xs muted" style="min-height:40px">Φόρτωση όλων των διευθύνσεων της Ελλάδας…</div>':''}</div>`:''}</div>`}
 function pickedCard(k){const t=addrTarget(k);if(!t.addr)return '';const noNum=!/\d/.test(t.addr);
-  const gx={address:t.addr,dimos:t.dimos,geo:t.geo};const g=geoOf(gx);const how=t.geo?'από την τοποθεσία σου':tkOf(gx)?'κέντρο Τ.Κ. '+tkOf(gx):t.dimos&&DCOORD[canon(t.dimos)]?'κέντρο του δήμου':'';
-  return `<div class="picked"><div class="pk-map">${liveMap({pts:[{...g}],trucks:[],h:150,minSpan:t.geo||tkOf(gx)?.14:.4,hl:g,aria:'Χάρτης: '+t.addr})}${how?`<span class="xs muted">Θέση κατά προσέγγιση · ${esc(how)}</span>`:''}</div>
+  const gx={address:t.addr,dimos:t.dimos,geo:t.geo};const g=geoOf(gx);const how=t.gsrc&&t.geo?'':t.geo?'από την τοποθεσία σου':tkOf(gx)?'κέντρο Τ.Κ. '+tkOf(gx):t.dimos&&DCOORD[canon(t.dimos)]?'κέντρο του δήμου':'';
+  return `<div class="picked"><div class="pk-map">${liveMap({pts:[{...g}],trucks:[],h:150,minSpan:t.geo||tkOf(gx)?.14:.4,hl:g,aria:'Χάρτης: '+t.addr})}${how?`<span class="xs muted">Θέση κατά προσέγγιση · ${esc(how)}</span>`:''}${t.gsrc&&t.geo?'<span class="xs muted">Ακριβής θέση από τη διεύθυνση</span>':''}</div>
   <div class="stack-s grow" style="gap:8px;min-width:0">
    <div class="field"><label class="label" for="pa-${k}">Διεύθυνση</label><input class="input sm" id="pa-${k}" data-in="${k}.addr" data-live="1" value="${esc(t.addr)}"></div>
    ${t.dimos&&!t.dimosEdit?`<div class="row between small" style="gap:8px"><span>${esc(placeLabel(t.dimos))}</span><button class="btn link" data-act="acDimosEdit" data-k="${k}">Αλλαγή δήμου</button></div>`:`<div class="field"><label class="label" for="pd-${k}">Δήμος</label>${dimosSelect('pd-'+k,k,t.dimos)}</div>`}
-   ${t.demoLoc?'<span class="xs muted">Δοκιμαστική θέση. Στην κανονική εφαρμογή συμπληρώνεται από το GPS του κινητού.</span>':t.geo?'<span class="xs muted">Από την τοποθεσία σου. Διόρθωσε οδό και αριθμό αν χρειάζεται.</span>':''}
+   ${t.demoLoc?'<span class="xs muted">Δοκιμαστική θέση. Στην κανονική εφαρμογή συμπληρώνεται από το GPS του κινητού.</span>':t.geo&&!t.gsrc?'<span class="xs muted">Από την τοποθεσία σου. Διόρθωσε οδό και αριθμό αν χρειάζεται.</span>':''}
    ${noNum?'<span class="hint bad">Πρόσθεσε τον αριθμό, για να βρει εύκολα το σημείο ο οδηγός.</span>':''}
   </div><button class="icon-btn" data-act="acClear" data-k="${k}" aria-label="Καθαρισμός διεύθυνσης">${icon.x}</button></div>`}
 function nearestDimos(lat,lng){let best=null,bd=1e9;Object.entries(DCOORD).forEach(([d,[a,b]])=>{const x=(a-lat)**2+((b-lng)*Math.cos(lat*Math.PI/180))**2;if(x<bd){bd=x;best=d}});return best}
@@ -3726,6 +3726,7 @@ async function liveBoot() {
   };
   liveLegalBoot();
   liveMapBoot();
+  liveAddressBoot();
   // σύνδεσμος από email (επιβεβαίωση λογαριασμού / νέος κωδικός)
   const fromMail = await SB.auth.fromUrl();
   if (fromMail.data || fromMail.error) history.replaceState(null, '', location.pathname);
@@ -5094,6 +5095,113 @@ function liveMapBoot() {
     const btn = `<button class="btn sm" data-act="pinOpen" data-v="${o.id}" style="align-self:flex-start">${icon.mpin}${lvExact(o) ? 'Σημείο στον χάρτη ✓' : 'Σημείο στον χάρτη'}</button>`;
     return h.slice(0, i) + btn + h.slice(i);
   };
+}
+
+/* =====================================================================
+   BazaGo · Βήμα 9γ — Αναζήτηση διεύθυνσης με Google (όπως στο Google Maps)
+   • Ο πελάτης γράφει → προτάσεις Google (με αριθμούς, περιοχές, σημεία) μέσω της
+     Edge Function «maps» (το κλειδί μένει στον server)
+   • Διαλέγει μία → ακριβής θέση + δήμος (από τον Τ.Κ., αλλιώς τον κοντινότερο)
+   • Τα έργα του εμφανίζονται πρώτα· πάντα υπάρχει και «Χρήση …» (χειροκίνητα)
+   • Αν η υπηρεσία δεν είναι διαθέσιμη, γυρίζει αθόρυβα στον κατάλογο οδών
+   ===================================================================== */
+
+var LVA = { on: true, fails: 0, items: {}, busy: {}, sess: {}, timer: null };
+const lvaTok = () => { try { return crypto.randomUUID().replace(/-/g, ''); } catch (e) { return (Math.random().toString(36).slice(2) + Date.now().toString(36)).slice(0, 32); } };
+
+function lvaFetch(k, q) {
+  clearTimeout(LVA.timer);
+  LVA.timer = setTimeout(async () => {
+    if ((addrTarget(k).q || '').trim() !== q || LVA.busy[k] === q || (LVA.items[k] && LVA.items[k].q === q)) return;
+    if (!LVA.sess[k]) LVA.sess[k] = lvaTok();
+    LVA.busy[k] = q; scheduleRender();
+    let data = null, error = null;
+    try { ({ data, error } = await SB.functions.invoke('maps', { body: { action: 'autocomplete', input: q, session: LVA.sess[k] } })); }
+    catch (e) { error = e; }
+    LVA.busy[k] = null;
+    if (error || !data || data.error) {
+      if (++LVA.fails >= 3) LVA.on = false;            // η υπηρεσία δεν απαντά → κατάλογος οδών
+      LVA.items[k] = { q, list: null };
+    } else {
+      LVA.fails = 0;
+      LVA.items[k] = { q, list: data.items || [] };
+    }
+    scheduleRender();
+  }, 280);
+}
+const lvaBusy = (k) => !!LVA.busy[k] && (addrTarget(k).q || '').trim() === LVA.busy[k];
+
+// προτάσεις για τη λίστα· null → η εφαρμογή χρησιμοποιεί τον κατάλογο οδών
+function lvaSuggest(k, q0) {
+  if (!LVA.on || !SB || !LV.user) return null;
+  const q = (q0 || '').trim();
+  if (q.length < 2) return [];
+  const words = nwords(q), out = [];
+  (D.customer.projects || []).forEach((p) => {
+    if (words.length && words.every((t) => tokHit(t, nwords(p.name + ' ' + p.address + ' ' + projDimos(p)))))
+      out.push({ t: 'saved', p, main: p.name, sub: p.address + ' · ' + projDimos(p), ic: icon.home });
+  });
+  if (q.length >= 3) {
+    const it = LVA.items[k];
+    if (it && it.q === q) {
+      if (it.list === null) return null;
+      it.list.forEach((g) => out.push({ t: 'g', id: g.id, main: g.main, sub: g.sub, ic: icon.mpin }));
+    } else {
+      if (LVA.busy[k] !== q) lvaFetch(k, q);
+      if (it && it.list && q.startsWith(it.q)) it.list.forEach((g) => out.push({ t: 'g', id: g.id, main: g.main, sub: g.sub, ic: icon.mpin }));
+    }
+    out.push({ t: 'manual', main: 'Χρήση «' + q + '»', sub: 'Δεν βρίσκεις τη διεύθυνση; Θα διαλέξεις μόνο τον δήμο.', ic: icon.search });
+  }
+  return out;
+}
+
+// δήμος από τον Τ.Κ. (κατάλογος οδών)· αν ο Τ.Κ. ανήκει σε πολλούς, ο πλησιέστερος
+async function lvaDimos(r) {
+  if (r.tk) {
+    loadAddr();
+    for (let i = 0; i < 40 && !ADDR; i++) await new Promise((res) => setTimeout(res, 200));
+    if (ADDR && ADDR.S && ADDR.S.length) {
+      const n = {};
+      ADDR.S.forEach((s) => { if (s.tk === r.tk) n[s.d] = (n[s.d] || 0) + 1; });
+      const ds = Object.keys(n);
+      if (ds.length === 1) return ds[0];
+      if (ds.length > 1) {
+        const dist = (d) => { const c = DCOORD[canon(d)]; return c ? (c[0] - r.lat) ** 2 + ((c[1] - r.lng) * Math.cos(r.lat * Math.PI / 180)) ** 2 : 1e9; };
+        return ds.sort((a, b) => dist(a) - dist(b))[0];
+      }
+    }
+  }
+  return nearestDimos(r.lat, r.lng) || '';
+}
+
+async function lvaPick(k, s) {
+  const t = addrTarget(k);
+  t.q = ''; render();
+  toast('Εύρεση διεύθυνσης…');
+  let data = null, error = null;
+  try { ({ data, error } = await SB.functions.invoke('maps', { body: { action: 'place', id: s.id, session: LVA.sess[k] } })); }
+  catch (e) { error = e; }
+  LVA.sess[k] = null; LVA.items[k] = null;
+  if (error || !data || data.error) { toast('Η διεύθυνση δεν βρέθηκε. Δοκίμασε ξανά ή γράψε την αλλιώς.'); return; }
+  const street = data.route ? data.route + (data.number ? ' ' + data.number : '') : s.main;
+  const place = [data.area || data.locality, data.tk].filter(Boolean).join(' ');
+  const addr = [street, place].filter(Boolean).join(', ');
+  const dimos = await lvaDimos(data);
+  applyAddr(k, { addr, dimos, geo: { lat: data.lat, lng: data.lng } });
+  const t2 = addrTarget(k);
+  t2.gsrc = 1; t2.dimosEdit = !dimos;
+  persist(); render();
+}
+
+function liveAddressBoot() {
+  const basePick = A.acPick;
+  A.acPick = function (el) {
+    const k = el.dataset.k, s = (acCache[k] || [])[+el.dataset.i];
+    if (s && s.t === 'g') return lvaPick(k, s);
+    return basePick.apply(this, arguments);
+  };
+  const baseApply = applyAddr;
+  applyAddr = function (k, r) { const t = addrTarget(k); t.gsrc = 0; return baseApply(k, r); };
 }
 
 if(location.hostname==='127.0.0.1')window.__bz={A,CHG,get D(){return D},get ui(){return ui},get LV(){return LV},render,patchCompany,save:(...a)=>save(...a)};
