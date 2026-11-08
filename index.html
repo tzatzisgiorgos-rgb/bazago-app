@@ -5480,7 +5480,7 @@ function liveBinsBoot() {
    • Για παραγγελίες σε έργο: «Ο πελάτης ζήτησε αποκομιδή / αντικατάσταση» (για λογαριασμό του)
    ===================================================================== */
 
-var LCO = { open: false, phone: '', name: '', email: '', q: '', addr: '', dimos: '', geo: null, size: '', mat: 'mpaza',
+var LCO = { pk: { oid: null }, open: false, phone: '', name: '', email: '', q: '', addr: '', dimos: '', geo: null, size: '', mat: 'mpaza',
   date: '', from: '', to: '', driver: '', notes: '', days: null, daysKey: '', busy: false, err: '', found: null, lookKey: '' };
 
 const lcoReset = () => Object.assign(LCO, { phone: '', name: '', email: '', q: '', addr: '', dimos: '', geo: null, gsrc: 0, size: '', mat: 'mpaza',
@@ -5590,9 +5590,27 @@ const LIVE_CO_ORDER = {
     await liveLoad();
     if (o && D.orders[o.id]) A.coOpenReq({ dataset: { v: o.id } }); else render();
   },
+  // «Ο πελάτης ζήτησε αποκομιδή» → διαλέγεις ημέρα (πρώτη διαθέσιμη ή όποια ζήτησε ο πελάτης)
   lcoPickup(el) {
     const id = el.dataset.v;
-    return lvOnce('lp' + id, () => lvRpc('request_pickup', { oid: id }, 'Η αποκομιδή καταχωρήθηκε για λογαριασμό του πελάτη'));
+    if (LCO.pk.oid === id) { LCO.pk = { oid: null }; render(); return; }
+    LCO.pk = { oid: id, date: '', days: 'loading' }; render();
+    const o = D.orders[id], g = geoOf(Object.assign({ id }, o));
+    SB.rpc('available_days', { cid: o.companyId, p_lat: g.lat, p_lng: g.lng, p_size: o.size, p_from: ymd(new Date()), p_days: 30, p_kind: 'pickup' })
+      .then(({ data, error }) => {
+        if (LCO.pk.oid !== id) return;
+        LCO.pk.days = error ? [] : (data || []).map((d) => d.day).filter(Boolean).slice(0, 8);
+        if (!LCO.pk.date && LCO.pk.days.length) LCO.pk.date = LCO.pk.days[0];
+        render();
+      });
+  },
+  lcoPkDay(el) { LCO.pk.date = el.dataset.v; render(); },
+  lcoPkGo(el) {
+    const id = el.dataset.v, d = LCO.pk.date || null;
+    return lvOnce('lp' + id, async () => {
+      const ok = await lvRpc('request_pickup', { oid: id, p_date: d }, 'Η αποκομιδή καταχωρήθηκε' + (d ? ' για ' + dlabel(d) : ''));
+      if (ok) { LCO.pk = { oid: null }; render(); }
+    });
   },
   lcoSwap(el) {
     const id = el.dataset.v, o = D.orders[id];
@@ -5602,7 +5620,7 @@ const LIVE_CO_ORDER = {
 
 function liveCompanyOrderBoot() {
   Object.assign(A, LIVE_CO_ORDER);
-  Object.assign(CHG, { lcoSet(el) { LCO[el.dataset.k] = el.value; LCO.err = ''; render(); } });
+  Object.assign(CHG, { lcoSet(el) { LCO[el.dataset.k] = el.value; LCO.err = ''; render(); }, lcoPkDate(el) { LCO.pk.date = el.value; render(); } });
   const baseBody = body;
   body = function () {
     if (LCO.open && ui.role === 'company' && LV.user) return lcoView();
@@ -5621,8 +5639,18 @@ function liveCompanyOrderBoot() {
     let add = '';
     if (o.source === 'company') add += '<span class="chip t-info" style="align-self:flex-start">Καταχώρηση από την εταιρία (τηλέφωνο/email)</span>';
     if (o.status === 'onsite') {
-      add += `<div class="row-wrap" style="gap:8px"><button class="btn sm" data-act="lcoPickup" data-v="${o.id}">Ο πελάτης ζήτησε αποκομιδή</button>`
+      const pk = LCO.pk.oid === o.id ? LCO.pk : null;
+      add += `<div class="row-wrap" style="gap:8px"><button class="btn sm ${pk ? 'primary' : ''}" data-act="lcoPickup" data-v="${o.id}" aria-expanded="${!!pk}">Ο πελάτης ζήτησε αποκομιδή</button>`
         + (o.perm ? '' : `<button class="btn sm" data-act="lcoSwap" data-v="${o.id}">Ο πελάτης ζήτησε αντικατάσταση</button>`) + '</div>';
+      if (pk) {
+        add += `<div class="card flat stack-s"><b class="small">Ημέρα αποκομιδής</b>
+          ${pk.days === 'loading' ? '<span class="small muted">Αναζήτηση διαθέσιμων ημερών…</span>'
+            : pk.days.length ? `<div class="tabs day-chips">${pk.days.map((d, i) => `<button class="pill sm ${pk.date === d ? 'on' : ''}" data-act="lcoPkDay" data-v="${d}" aria-pressed="${pk.date === d}">${esc(dlabel(d))}${i === 0 ? ' · πρώτη' : ''}</button>`).join('')}</div>`
+            : '<span class="small muted">Δεν βρέθηκε ημέρα με χώρο· διάλεξε ημέρα παρακάτω.</span>'}
+          <div class="field" style="max-width:220px"><label class="label" for="pk-d-${o.id}">Ή η ημέρα που ζήτησε ο πελάτης</label>
+            <input class="input" id="pk-d-${o.id}" type="date" min="${ymd(new Date())}" value="${esc(pk.date || '')}" data-chg="lcoPkDate"></div>
+          <button class="btn primary sm" data-act="lcoPkGo" data-v="${o.id}" style="align-self:flex-start" ${pk.date ? '' : 'disabled'}>Καταχώρηση αποκομιδής${pk.date ? ' · ' + esc(dlabel(pk.date)) : ''}</button></div>`;
+      }
     }
     return add ? h.slice(0, i) + add + h.slice(i) : h;
   };
