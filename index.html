@@ -1911,8 +1911,8 @@ function companyView(){
   if(ui.co.tab==='fleet'){ui.co.tab='profile';ui.co.pSub='fleet'}if(ui.co.tab==='stats'){ui.co.tab='profile';ui.co.pSub='stats'}
   if(!['home','new','requests','map','profile'].includes(ui.co.tab))ui.co.tab='home';
   const t=ui.co.tab;
-  const tabs=[['home','Σήμερα',icon.home,0],['new','Νέα αιτήματα',icon.receipt,needN],['requests','Διαχείριση',icon.bin,0],['map','Χάρτης',icon.mpin,0],['profile','Προφίλ',icon.user,vAlert]];
-  const TITLE={home:'Σήμερα',new:'Νέα αιτήματα',requests:'Διαχείριση κάδων',map:'Χάρτης στόλου',profile:'Προφίλ εταιρίας'};
+  const tabs=[['home','Σήμερα',icon.home,0],['new','Νέα αιτήματα',icon.receipt,needN],['map','Κάδοι',icon.bin,0],['requests','Παραγγελίες',icon.receipt,0],['profile','Προφίλ',icon.user,vAlert]];
+  const TITLE={home:'Σήμερα',new:'Νέα αιτήματα',requests:'Παραγγελίες',map:'Κάδοι σε έργα',profile:'Προφίλ εταιρίας'};
   let h=`<nav class="bnav" aria-label="Ενότητες εταιρίας"><div class="bnav-in five">${tabs.map(([k,l,ic,n])=>`<button class="${t===k?'on':''}" data-act="coTab" data-v="${k}" aria-current="${t===k?'page':'false'}">${ic}<span>${l}</span>${n?`<span class="badge">${n}</span>`:''}</button>`).join('')}</div></nav>
   <div class="stack">`;
   if(ownJob)return h+drJob(ownJob,{own:true})+'</div>';
@@ -1921,7 +1921,7 @@ function companyView(){
   if(t==='home')h+=coHome(co,mine);
   else if(t==='new')h+=coRequests(co,mine,'new');
   else if(t==='requests')h+=coRequests(co,mine,'manage');
-  else if(t==='map')h+=fleetPanel(co,id);
+  else if(t==='map')h+=(mode==='live'&&typeof lvbView==='function'?lvbView(co,id):fleetPanel(co,id));
   else{if(!['stats','fleet','settings'].includes(ui.co.pSub))ui.co.pSub='stats';const ps=ui.co.pSub;
     h+=`<div class="seg p-seg" role="group" aria-label="Προφίλ">${[['stats','Στατιστικά'],['fleet','Στόλος'+(vAlert?' ⚠':'')],['settings','Ρυθμίσεις']].map(([k,l])=>`<button class="${ps===k?'on':''}" data-act="coSet" data-k="pSub" data-v="${k}" aria-pressed="${ps===k}">${l}</button>`).join('')}</div>`;
     if(ps==='stats')h+=coStats(co,id);
@@ -3727,6 +3727,7 @@ async function liveBoot() {
   liveLegalBoot();
   liveMapBoot();
   liveAddressBoot();
+  liveBinsBoot();
   // σύνδεσμος από email (επιβεβαίωση λογαριασμού / νέος κωδικός)
   const fromMail = await SB.auth.fromUrl();
   if (fromMail.data || fromMail.error) history.replaceState(null, '', location.pathname);
@@ -5202,6 +5203,208 @@ function liveAddressBoot() {
   };
   const baseApply = applyAddr;
   applyAddr = function (k, r) { const t = addrTarget(k); t.gsrc = 0; return baseApply(k, r); };
+}
+
+/* =====================================================================
+   BazaGo · Βήμα 9δ — «Κάδοι»: πλήρης εικόνα της εταιρίας για τους τοποθετημένους κάδους
+   • Σύνοψη στόλου (σε έργο / ελεύθεροι / δεσμευμένοι / συντήρηση)
+   • Φίλτρα επείγοντος: επιπλέον ημέρες, λήγουν (από την προτελευταία ημέρα), αποκομιδή,
+     αντικατάσταση, μόνιμοι — η λήξη είναι ενημέρωση, όχι αποκομιδή
+   • Χάρτης δρόμων (OpenStreetMap) με πινέζα για κάθε τοποθετημένο κάδο + φορτηγά + βάση
+   • Λίστα ταξινομημένη κατά επείγον· κάθε κάδος ανοίγει την παραγγελία του
+   Ο χάρτης ζει έξω από το render (μετακινείται στη θέση του), για να μη χάνεται το zoom.
+   ===================================================================== */
+
+var LVB = { el: null, map: null, layer: null, trucks: null, marks: new Map(), tmarks: new Map(), fitKey: '', loading: null, cluster: false };
+const LVB_CL = 'https://cdnjs.cloudflare.com/ajax/libs/leaflet.markercluster/1.5.3/';
+const LVB_K = {
+  over:   ['Επιπλέον ημέρες', '#DC2626'],
+  ending: ['Λήγουν', '#EA8A00'],
+  pickup: ['Ζητήθηκε αποκομιδή', '#2563EB'],
+  swap:   ['Αντικατάσταση', '#7C3AED'],
+  ok:     ['Εντός ημερών', '#16A34A'],
+  perm:   ['Μόνιμοι', '#0F766E'],
+};
+const LVB_ORDER = ['over', 'pickup', 'swap', 'ending', 'ok', 'perm'];
+
+// κατάσταση ενός τοποθετημένου κάδου
+function lvbInfo(o) {
+  const r = rentInfo(o);
+  let k;
+  if (String(o.status).startsWith('pickup')) k = 'pickup';
+  else if (String(o.status).startsWith('swap')) k = 'swap';
+  else if (r.perm) k = 'perm';
+  else if (r.over > 0) k = 'over';
+  else if (r.left <= 1) k = 'ending';
+  else k = 'ok';
+  let txt;
+  if (r.perm) txt = 'Μόνιμος · από ' + fmtDate(r.start);
+  else if (r.over > 0) txt = 'Ημέρα ' + r.day + ' από ' + r.incl + ' · +' + r.over + (r.over === 1 ? ' ημέρα' : ' ημέρες') + (r.cost ? ' (' + eur(r.cost) + ')' : '');
+  else if (r.left === 1) txt = 'Ημέρα ' + r.day + ' από ' + r.incl + ' · αύριο η τελευταία';
+  else if (r.left <= 0) txt = 'Ημέρα ' + r.day + ' από ' + r.incl + ' · σήμερα η τελευταία';
+  else txt = 'Ημέρα ' + r.day + ' από ' + r.incl + ' · ' + r.left + ' ημέρες ακόμα';
+  const req = k === 'pickup' ? (STATUS[o.status] || [''])[0] : k === 'swap' ? (STATUS[o.status] || [''])[0] : '';
+  return { k, r, txt, req };
+}
+
+function lvbPlaced(cid) {
+  return ordersArr().filter((o) => o.companyId === cid && RENT_ST.includes(o.status)).map((o) => Object.assign({ info: lvbInfo(o), g: geoOf(o) }, o));
+}
+const lvbRank = (x) => LVB_ORDER.indexOf(x.info.k) * 1e6 - (x.info.r.over || 0) * 1e3 + (x.info.r.left == null ? 0 : x.info.r.left);
+
+function lvbFilter(list) {
+  const f = ui.co.bkF || 'all', sz = ui.co.bkSize || '', q = norm(String(ui.co.bkq || '').trim());
+  return list.filter((o) => (f === 'all' || o.info.k === f) && (!sz || String(o.size) === sz)
+    && (!q || [o.code, o.binCode, o.customerName, o.address, o.projectName, o.dimos].some((x) => norm(String(x || '')).includes(q))));
+}
+
+function lvbPopup(o) {
+  const c = LVB_K[o.info.k];
+  const nav = 'https://www.google.com/maps/dir/?api=1&destination=' + o.g.lat + ',' + o.g.lng;
+  return `<div class="lvb-pop" style="min-width:210px;max-width:260px;display:flex;flex-direction:column;gap:4px;font:13px/1.4 inherit">
+    <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(o.binCode || '#' + o.code)}</b><span style="color:${c[1]};font-weight:700">${esc(o.info.req || c[0])}</span></div>
+    <span>${esc(sizeName(o.size))} · ${esc(matName(o.mat))}</span>
+    <span><b>${esc(o.customerName || '')}</b><br>${esc(o.address || '')}</span>
+    <span style="color:${o.info.k === 'over' ? c[1] : 'inherit'}">${esc(o.info.txt)}</span>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
+      <button class="btn sm primary" data-act="coOpenReq" data-v="${o.id}">Παραγγελία #${esc(o.code)}</button>
+      <a class="btn sm" href="${nav}" target="_blank" rel="noopener">Πλοήγηση</a>
+      ${o.phone ? `<a class="btn sm" href="tel:${esc(String(o.phone).replace(/\s+/g, ''))}">Κλήση</a>` : ''}</div></div>`;
+}
+
+function lvbView(co, cid) {
+  const all = lvbPlaced(cid).sort((a, b) => lvbRank(a) - lvbRank(b));
+  const list = lvbFilter(all);
+  const bins = co.bins || [];
+  const nB = (st) => bins.filter((b) => b.status === st).length;
+  const cnt = (k) => all.filter((o) => o.info.k === k).length;
+  const f = ui.co.bkF || 'all';
+  const chip = (k, l, n, col) => `<button class="pill sm ${f === k ? 'on' : ''}" data-act="coSet" data-k="bkF" data-v="${k}" aria-pressed="${f === k}">${col ? `<i class="cdot" style="background:${col}"></i>` : ''}${l}<span class="cnt">${n}</span></button>`;
+  const urgent = ['over', 'ending', 'pickup', 'swap'].filter((k) => cnt(k));
+  const sizes = [...new Set(all.map((o) => String(o.size)))].sort((a, b) => parseFloat(a) - parseFloat(b));
+  const row = (o) => {
+    const c = LVB_K[o.info.k];
+    return `<button class="mb-row lvb-row" data-act="coOpenReq" data-v="${o.id}" style="text-align:left;width:100%;align-items:flex-start;gap:10px">
+      <i class="cdot" style="background:${c[1]};margin-top:5px;flex:none"></i>
+      <span class="grow" style="min-width:0;display:flex;flex-direction:column;gap:2px">
+        <span class="row between" style="gap:8px"><b class="small">${esc(o.binCode || '#' + o.code)} · ${esc(sizeName(o.size))}</b><span class="xs" style="color:${c[1]};font-weight:700;white-space:nowrap">${esc(o.info.req || c[0])}</span></span>
+        <span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.customerName || '')} · ${esc(o.address || '')}</span>
+        <span class="xs ${o.info.k === 'over' ? '' : 'muted'}" style="${o.info.k === 'over' ? 'color:' + c[1] : ''}">${esc(o.info.txt)}</span></span></button>`;
+  };
+  return `<div class="stack">
+    <div class="card stack-s">
+      <div class="row between" style="gap:8px;flex-wrap:wrap"><b>Στόλος κάδων</b><button class="btn link" data-act="lvbFleet">Διαχείριση στόλου</button></div>
+      <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(76px,1fr))">
+        ${[['Σε έργο', nB('onsite') || all.length], ['Ελεύθεροι', nB('free')], ['Δεσμευμένοι', nB('reserved')], ['Συντήρηση', nB('service')]]
+          .map(([l, n]) => `<div class="tile" style="text-align:center"><b class="h2 num">${n}</b><span class="xs muted" style="overflow-wrap:anywhere">${l}</span></div>`).join('')}</div>
+      ${urgent.length ? `<div class="stack-s" style="gap:4px">${urgent.map((k) => `<button class="btn link" data-act="coSet" data-k="bkF" data-v="${k}" style="align-self:flex-start;color:${LVB_K[k][1]}"><i class="cdot" style="background:${LVB_K[k][1]}"></i> ${cnt(k)} · ${{ over: 'πέρασαν τις ημέρες ενοικίασης', ending: 'λήγουν σήμερα ή αύριο', pickup: 'ζήτησαν αποκομιδή', swap: 'ζήτησαν αντικατάσταση' }[k]}</button>`).join('')}</div>`
+        : '<span class="xs muted">Τίποτα επείγον αυτή τη στιγμή.</span>'}</div>
+    <div class="tabs day-chips">${chip('all', 'Όλοι', all.length)}${LVB_ORDER.filter((k) => cnt(k)).map((k) => chip(k, LVB_K[k][0], cnt(k), LVB_K[k][1])).join('')}</div>
+    <div class="rq-bar"><div class="search-box grow"><label class="sr" for="bk-q">Αναζήτηση κάδου</label>${icon.search}<input class="input" id="bk-q" data-in="co.bkq" data-live="1" value="${esc(ui.co.bkq || '')}" placeholder="Κάδος, πελάτης ή διεύθυνση" autocomplete="off"></div>
+      ${sizes.length > 1 ? `<select class="input sm" data-chg="lvbSize" aria-label="Μέγεθος" style="max-width:140px"><option value="">Όλα τα μεγέθη</option>${sizes.map((s) => `<option value="${esc(s)}" ${ui.co.bkSize === s ? 'selected' : ''}>${esc(sizeName(s))}</option>`).join('')}</select>` : ''}</div>
+    <div id="lvb-slot" style="position:relative;z-index:0;isolation:isolate;height:min(56vh,440px);border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#e9ecef"></div>
+    <span class="xs muted">Πάτα μια πινέζα για στοιχεία, πλοήγηση και την παραγγελία. ${all.some((o) => !o.geo) ? 'Όσοι κάδοι δεν έχουν ακριβές σημείο φαίνονται στο κέντρο της περιοχής τους.' : ''}</span>
+    <div class="stack-s"><span class="label">${list.length} ${list.length === 1 ? 'κάδος' : 'κάδοι'}${f === 'all' ? ' σε έργα' : ' · ' + LVB_K[f][0].toLowerCase()}</span>
+      ${list.length ? `<div class="card mb-list">${list.map(row).join('')}</div>` : `<div class="card flat muted small">${all.length ? 'Κανένας κάδος με αυτά τα φίλτρα.' : 'Δεν υπάρχει κάδος τοποθετημένος σε έργο.'}</div>`}</div>
+    ${lvbTrucksHtml(co, cid)}</div>`;
+}
+
+// τα φορτηγά τώρα (από τον παλιό «Χάρτη στόλου»)
+function lvbTrucksHtml(co, cid) {
+  let fp = '';
+  try { fp = fleetPanel(co, cid); } catch (e) { return ''; }
+  const rows = fp.match(/<div class="fl-row">[\s\S]*?<\/span><\/div>/g) || [];
+  if (!rows.length) return '';
+  return `<div class="stack-s"><span class="label">Φορτηγά τώρα</span><div class="card fl-list">${rows.join('')}</div></div>`;
+}
+
+/* ---------------------------------------------------------------- χάρτης */
+function lvbLoadCluster() {
+  if (window.L && window.L.markerClusterGroup) return Promise.resolve(true);
+  if (LVB.loading) return LVB.loading;
+  LVB.loading = new Promise((res) => {
+    ['MarkerCluster.css', 'MarkerCluster.Default.css'].forEach((f) => { const l = document.createElement('link'); l.rel = 'stylesheet'; l.href = LVB_CL + f; document.head.appendChild(l); });
+    const s = document.createElement('script'); s.src = LVB_CL + 'leaflet.markercluster.js';
+    s.onload = () => res(true); s.onerror = () => res(false); document.head.appendChild(s);
+  });
+  return LVB.loading;
+}
+function lvbIcon(col, label) {
+  return window.L.divIcon({ className: 'lvb-ic', iconSize: [28, 34], iconAnchor: [14, 33], popupAnchor: [0, -30],
+    html: `<svg width="28" height="34" viewBox="0 0 28 34" aria-label="${esc(label)}"><path d="M14 33s11-9.6 11-18.5A11 11 0 0 0 3 14.5C3 23.4 14 33 14 33z" fill="${col}" stroke="#fff" stroke-width="2"/><rect x="8.5" y="9" width="11" height="8" rx="1.5" fill="#fff"/></svg>` });
+}
+const lvbTruckIcon = () => window.L.divIcon({ className: 'lvb-ic', iconSize: [30, 30], iconAnchor: [15, 15],
+  html: '<div style="width:30px;height:30px;border-radius:50%;background:#111827;border:2px solid #fff;display:grid;place-items:center;box-shadow:0 1px 3px rgba(0,0,0,.4)"><svg width="18" height="18" viewBox="0 0 24 24" fill="#fff"><path d="M3 6h11v9H3zM14 9h4l3 3v3h-7zM6.5 19a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6zm11 0a1.8 1.8 0 1 0 0-3.6 1.8 1.8 0 0 0 0 3.6z"/></svg></div>' });
+const lvbDepotIcon = () => window.L.divIcon({ className: 'lvb-ic', iconSize: [26, 26], iconAnchor: [13, 13],
+  html: '<div style="width:26px;height:26px;border-radius:6px;background:#374151;border:2px solid #fff;display:grid;place-items:center;color:#fff;font:700 12px/1 sans-serif">Β</div>' });
+
+async function lvbEnsureMap() {
+  if (LVB.map || LVB.creating) return;
+  LVB.creating = true;
+  try { await lvmLoad(); } catch (e) { LVB.creating = false; return; }
+  LVB.cluster = await lvbLoadCluster();
+  const el = document.createElement('div');
+  el.style.cssText = 'width:100%;height:100%';
+  LVB.el = el;
+  const L = window.L;
+  LVB.map = L.map(el, { zoomControl: true }).setView([38.0, 23.73], 11);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19,
+    attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(LVB.map);
+  LVB.layer = LVB.cluster ? L.markerClusterGroup({ maxClusterRadius: 45, showCoverageOnHover: false }) : L.layerGroup();
+  LVB.layer.addTo(LVB.map);
+  LVB.trucks = L.layerGroup().addTo(LVB.map);
+  LVB.creating = false;
+  lvbSync();
+}
+
+// μετά από κάθε render: ο χάρτης μπαίνει στη θέση του και ενημερώνονται οι πινέζες
+function lvbSync() {
+  const slot = document.getElementById('lvb-slot');
+  if (!slot) return;
+  if (!LVB.map) { lvbEnsureMap(); return; }
+  if (LVB.el.parentNode !== slot) { slot.appendChild(LVB.el); setTimeout(() => LVB.map && LVB.map.invalidateSize(), 0); }
+  const cid = ui.co.id, co = D.companies[cid];
+  if (!co) return;
+  const L = window.L;
+  const list = lvbFilter(lvbPlaced(cid));
+  const seen = new Set();
+  list.forEach((o) => {
+    seen.add(o.id);
+    const col = LVB_K[o.info.k][1], sig = o.info.k + '|' + o.g.lat + '|' + o.g.lng + '|' + o.info.txt + '|' + o.status;
+    let m = LVB.marks.get(o.id);
+    if (!m) { m = L.marker([o.g.lat, o.g.lng], { icon: lvbIcon(col, o.code), title: (o.binCode || '#' + o.code) + ' · ' + (o.address || '') }); m._sig = ''; LVB.marks.set(o.id, m); LVB.layer.addLayer(m); }
+    if (m._sig !== sig) { m.setLatLng([o.g.lat, o.g.lng]); m.setIcon(lvbIcon(col, o.code)); m.bindPopup(lvbPopup(o)); m._sig = sig; }
+  });
+  [...LVB.marks.keys()].forEach((id) => { if (!seen.has(id)) { LVB.layer.removeLayer(LVB.marks.get(id)); LVB.marks.delete(id); } });
+  // φορτηγά (μόνο όσα στέλνουν θέση) και βάση
+  LVB.trucks.clearLayers();
+  const dep = depotOf(co);
+  if (dep && isFinite(dep.lat)) L.marker([dep.lat, dep.lng], { icon: lvbDepotIcon(), title: 'Βάση' }).bindPopup('<b>Βάση</b>').addTo(LVB.trucks);
+  Object.values(D.tracks || {}).filter((t) => t.cid === cid && t.gps).forEach((t) => {
+    L.marker([t.gps.lat, t.gps.lng], { icon: lvbTruckIcon(), title: t.plate }).bindPopup(`<b>${esc(t.plate)}</b><br>${esc(KIND_GR[t.kind] || 'Διαδρομή')}`).addTo(LVB.trucks);
+  });
+  // κάδρο: μόνο όταν αλλάζουν τα φίλτρα ή την πρώτη φορά, για να μένει το zoom του χρήστη
+  const key = cid + '|' + (ui.co.bkF || 'all') + '|' + (ui.co.bkSize || '') + '|' + (ui.co.bkq || '') + '|' + (list.length ? 1 : 0);
+  if (key !== LVB.fitKey) {
+    LVB.fitKey = key;
+    const pts = list.map((o) => [o.g.lat, o.g.lng]);
+    if (dep && isFinite(dep.lat) && !(ui.co.bkF && ui.co.bkF !== 'all')) pts.push([dep.lat, dep.lng]);
+    if (pts.length > 1) LVB.map.fitBounds(pts, { padding: [36, 36], maxZoom: 16 });
+    else if (pts.length === 1) LVB.map.setView(pts[0], 15);
+  }
+}
+
+function liveBinsBoot() {
+  Object.assign(A, {
+    lvbFleet() { ui.co.tab = 'profile'; ui.co.pSub = 'fleet'; ui.co.fleetSub = 'bins'; window.scrollTo(0, 0); render(); },
+  });
+  Object.assign(CHG, { lvbSize(el) { ui.co.bkSize = el.value; render(); } });
+  const baseRender = render;
+  render = function () {
+    const r = baseRender.apply(this, arguments);
+    try { lvbSync(); } catch (e) { /* ο χάρτης δεν είναι κρίσιμος για την υπόλοιπη οθόνη */ }
+    return r;
+  };
 }
 
 if(location.hostname==='127.0.0.1')window.__bz={A,CHG,get D(){return D},get ui(){return ui},get LV(){return LV},render,patchCompany,save:(...a)=>save(...a)};
