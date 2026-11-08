@@ -1213,7 +1213,7 @@ const norm=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').toLowerCase(
 const nwords=s=>norm(s).split(/[ -]/).filter(Boolean);
 const tokHit=(t,ws)=>ws.some(w=>w.startsWith(t)||(w.length>=4&&t.startsWith(w)));
 const acCache={c:[],np:[]};let locating=null;
-const addrTarget=k=>k==='np'?np:ui.c;
+const addrTarget=k=>k==='np'?np:(k==='lco'&&typeof LCO!=='undefined')?LCO:ui.c;
 function suggest(q){
   const toks=nwords(q);const num=toks.find(t=>/^\d+[α-ω]?$/.test(t))||'';const words=toks.filter(t=>t!==num);const out=[];if(!words.length)return out;
   (D.customer.projects||[]).forEach(p=>{if(words.every(t=>tokHit(t,nwords(p.name+' '+p.address+' '+projDimos(p)))))out.push({t:'saved',p,main:p.name,sub:p.address+' · '+projDimos(p),ic:icon.home})});
@@ -1919,6 +1919,7 @@ function companyView(){
   if(ownJob)return h+drJob(ownJob,{own:true})+'</div>';
   h+=`<div class="row"><span class="co-logo" style="background:${co.tint}">${esc(co.initials)}</span><div class="grow"><h1 class="h2">${TITLE[t]}</h1><p class="small muted">${esc(co.name)}${co.solo?' · μοναδικός οδηγός':''}</p></div></div>`;
   const seg=(key,opts)=>`<div class="seg" style="grid-template-columns:repeat(${opts.length},minmax(0,1fr))" role="group">${opts.map(([k,l])=>`<button class="${ui.co[key]===k?'on':''}" data-act="coSet" data-k="${key}" data-v="${k}" aria-pressed="${ui.co[key]===k}">${l}</button>`).join('')}</div>`;
+  if(mode==='live'&&typeof lcoBtn==='function'&&['home','new','requests'].includes(t)&&co.status!=='pending'&&co.status!=='suspended')h+=lcoBtn();
   if(t==='home')h+=coHome(co,mine);
   else if(t==='new')h+=coRequests(co,mine,'new');
   else if(t==='requests')h+=coRequests(co,mine,'manage');
@@ -2909,7 +2910,7 @@ document.addEventListener('change',e=>{const el=e.target;const isSel=el.tagName=
   if(isSel){selectDone=true;try{el.blur()}catch(_){}}const f=el.dataset&&CHG[el.dataset.chg];if(f)f(el);
   if(isSel){if(pending){pending=false;render()}selectDone=false}});
 document.addEventListener('keydown',e=>{const k=e.target&&e.target.dataset&&e.target.dataset.ac;if(!k||e.key!=='Enter')return;e.preventDefault();const s=acCache[k]&&acCache[k][0];if(s){const b=document.querySelector(`[data-act="acPick"][data-k="${k}"][data-i="0"]`);if(b)A.acPick(b)}});
-document.addEventListener('input',e=>{const el=e.target;const k=el.dataset&&el.dataset.in;if(!k)return;const [o,f]=k.split('.');const tgt={c:ui.c,co:ui.co,np,nd,swz,nv,drIssue,joinF,rg,bk,au:AU,lg:LG}[o];if(!tgt)return;tgt[f]=el.value;if(o==='c'||o==='co')persist();if(o==='bk'){const f=document.getElementById('bk-foot');if(f)f.innerHTML=bkFoot()}if(el.dataset.live)render()});
+document.addEventListener('input',e=>{const el=e.target;const k=el.dataset&&el.dataset.in;if(!k)return;const [o,f]=k.split('.');const tgt={c:ui.c,co:ui.co,np,nd,swz,nv,drIssue,joinF,rg,bk,au:AU,lg:LG,lco:LCO}[o];if(!tgt)return;tgt[f]=el.value;if(o==='c'||o==='co')persist();if(o==='bk'){const f=document.getElementById('bk-foot');if(f)f.innerHTML=bkFoot()}if(el.dataset.live)render()});
 document.addEventListener('focusout',e=>{if(pending&&e.target.tagName==='SELECT'){pending=false;setTimeout(scheduleRender,0)}});
 
 render();
@@ -3612,7 +3613,7 @@ async function liveLoad() {
       auto: o.auto_assigned ? { why: o.auto_assigned.why, at: o.auto_assigned.at } : null,
       rating: o.rating ? { stars: o.rating, note: o.rating_note || '' } : null,
       paid: !!o.paid_at, paidAt: o.paid_at, platformFee: o.platform_fee == null ? null : Number(o.platform_fee),
-      termsAt: o.terms_accepted_at, createdAt: o.created_at, acceptedAt: o.accepted_at, completedAt: o.completed_at, placedAt: o.placed_at,
+      source: o.source || 'app', termsAt: o.terms_accepted_at, createdAt: o.created_at, acceptedAt: o.accepted_at, completedAt: o.completed_at, placedAt: o.placed_at,
       pickupDate: o.pickup_date, requested: o.requested_date ? { date: o.requested_date, dateLabel: lvDMY(o.requested_date) } : undefined,
       proposal: o.proposal ? { date: o.proposal.date, dateLabel: lvDMY(o.proposal.date),
         slot: o.proposal.slot_start ? lvHM(o.proposal.slot_start) + '–' + lvHM(o.proposal.slot_end) : '',
@@ -3729,6 +3730,7 @@ async function liveBoot() {
   liveMapBoot();
   liveAddressBoot();
   liveBinsBoot();
+  liveCompanyOrderBoot();
   // σύνδεσμος από email (επιβεβαίωση λογαριασμού / νέος κωδικός)
   const fromMail = await SB.auth.fromUrl();
   if (fromMail.data || fromMail.error) history.replaceState(null, '', location.pathname);
@@ -5465,6 +5467,164 @@ function liveBinsBoot() {
     const r = baseRender.apply(this, arguments);
     try { lvbSync(); } catch (e) { /* ο χάρτης δεν είναι κρίσιμος για την υπόλοιπη οθόνη */ }
     return r;
+  };
+}
+
+/* =====================================================================
+   BazaGo · Βήμα 9ε — Η εταιρία καταχωρεί παραγγελία από τηλέφωνο ή email
+   • «+ Νέα παραγγελία» (Σήμερα / Νέα αιτήματα / Παραγγελίες)
+   • Πελάτης: κινητό (συμπληρώνει όνομα/email από προηγούμενη παραγγελία), όνομα, email
+   • Διεύθυνση με την ίδια αναζήτηση (Google), κάδος/υλικό από τις τιμές της ζώνης,
+     ημέρα (πρώτη διαθέσιμη ή όποια επιλέξει), ώρα και οδηγός προαιρετικά
+   • Τιμή μόνο από τον τιμοκατάλογο · άμεση αποδοχή (company_place_order)
+   • Για παραγγελίες σε έργο: «Ο πελάτης ζήτησε αποκομιδή / αντικατάσταση» (για λογαριασμό του)
+   ===================================================================== */
+
+var LCO = { open: false, phone: '', name: '', email: '', q: '', addr: '', dimos: '', geo: null, size: '', mat: 'mpaza',
+  date: '', from: '', to: '', driver: '', notes: '', days: null, daysKey: '', busy: false, err: '', found: null, lookKey: '' };
+
+const lcoReset = () => Object.assign(LCO, { phone: '', name: '', email: '', q: '', addr: '', dimos: '', geo: null, gsrc: 0, size: '', mat: 'mpaza',
+  date: '', from: '', to: '', driver: '', notes: '', days: null, daysKey: '', busy: false, err: '', found: null, lookKey: '', dimosEdit: false });
+
+function lcoBtn() {
+  return `<button class="btn primary" data-act="lcoOpen" style="align-self:flex-start">${icon.plus || '+'} Νέα παραγγελία από τηλέφωνο / email</button>`;
+}
+
+// στοιχεία πελάτη από προηγούμενη παραγγελία με το ίδιο κινητό
+async function lcoLookup() {
+  const ph = LCO.phone.replace(/[^0-9+]/g, '');
+  if (ph.replace(/\D/g, '').length < 10 || LCO.lookKey === ph) return;
+  LCO.lookKey = ph;
+  const { data } = await SB.rpc('company_customer_lookup', { p_company: ui.co.id, p_phone: ph });
+  const r = Array.isArray(data) ? data[0] : data;
+  LCO.found = r || null;
+  if (r) { if (!LCO.name.trim()) LCO.name = r.name || ''; if (!LCO.email.trim()) LCO.email = r.email || ''; }
+  render();
+}
+
+// διαθέσιμες ημέρες για τη ζώνη/μέγεθος
+async function lcoDays() {
+  const g = LCO.geo || (LCO.dimos ? dimosGeo(LCO.dimos) : null);
+  const key = [ui.co.id, LCO.size, LCO.dimos, g ? g.lat.toFixed(3) + ',' + g.lng.toFixed(3) : ''].join('|');
+  if (!LCO.size || !LCO.dimos || key === LCO.daysKey) return;
+  LCO.daysKey = key; LCO.days = 'loading'; render();
+  const today = ymd(new Date());
+  const { data, error } = await SB.rpc('available_days', { cid: ui.co.id, p_lat: g ? g.lat : null, p_lng: g ? g.lng : null, p_size: LCO.size, p_from: today, p_days: 30, p_kind: 'delivery' });
+  if (LCO.daysKey !== key) return;
+  LCO.days = error ? [] : (data || []).map((d) => d.day).filter(Boolean).slice(0, 8);
+  if (!LCO.date && LCO.days.length) LCO.date = LCO.days[0];
+  render();
+}
+const dimosGeo = (d) => { const c = DCOORD[canon(d)]; return c ? { lat: c[0], lng: c[1] } : null; };
+
+function lcoView() {
+  const co = D.companies[ui.co.id] || {};
+  const ar = LCO.dimos ? coArea(co, LCO.dimos) : null;
+  const sizes = ar ? Object.keys(ar.prices || {}).sort((a, b) => parseFloat(a) - parseFloat(b)) : [];
+  if (LCO.size && !sizes.includes(LCO.size)) LCO.size = '';
+  if (!LCO.size && sizes.length) LCO.size = sizes.find((s) => freeBins(co, s) > 0) || sizes[0];
+  const mats = MATS.filter((m) => !m.extra && coMat(co, m.id).on);
+  if (mats.length && !mats.some((m) => m.id === LCO.mat)) LCO.mat = mats[0].id;
+  const q = ar && LCO.size && LCO.mat ? quote(co, ar, LCO.size, LCO.mat) : null;
+  const free = LCO.size ? freeBins(co, LCO.size) : 0;
+  if (ar && LCO.size) setTimeout(lcoDays, 0);
+  const drivers = Object.entries(D.drivers).filter(([, d]) => d.companyId === ui.co.id && d.active !== false);
+  const f = (id, label, inner) => `<div class="field"><label class="label" for="${id}">${label}</label>${inner}</div>`;
+  const dayChip = (d) => `<button class="pill sm ${LCO.date === d ? 'on' : ''}" data-act="lcoDay" data-v="${d}" aria-pressed="${LCO.date === d}">${esc(dlabel(d))}</button>`;
+  return `<div class="stack" style="max-width:640px;margin:0 auto">
+    <button class="btn link" data-act="lcoClose" style="align-self:flex-start">← Πίσω</button>
+    <div><h1 class="h2" style="margin:0">Νέα παραγγελία</h1><p class="small muted" style="margin:4px 0 0">Για πελάτη που σας πήρε τηλέφωνο ή σας έστειλε email. Μπαίνει κατευθείαν ως επιβεβαιωμένη και ακολουθεί την κανονική ροή (κάδος, οδηγός, παράδοση, αποκομιδή).</p></div>
+    <div class="card stack-s"><b>Πελάτης</b>
+      ${f('lco-phone', 'Κινητό', `<input class="input" id="lco-phone" type="tel" inputmode="tel" autocomplete="off" data-in="lco.phone" data-live="1" value="${esc(LCO.phone)}" placeholder="69…">`)}
+      ${LCO.found ? `<span class="xs" style="color:var(--ok-ink,#15803D)">Υπάρχων πελάτης · τελευταία διεύθυνση: ${esc(LCO.found.last_address || '—')}</span>` : ''}
+      ${f('lco-name', 'Ονοματεπώνυμο ή επωνυμία', `<input class="input" id="lco-name" autocomplete="off" data-in="lco.name" value="${esc(LCO.name)}">`)}
+      ${f('lco-email', 'Email (προαιρετικό · για να ενημερώνεται)', `<input class="input" id="lco-email" type="email" autocomplete="off" data-in="lco.email" value="${esc(LCO.email)}" placeholder="pelatis@…">`)}</div>
+    <div class="card stack-s"><b>Διεύθυνση τοποθέτησης</b>${LCO.addr ? pickedCard('lco') : addrSearch('lco')}</div>
+    <div class="card stack-s"><b>Κάδος</b>
+      ${!LCO.dimos ? '<span class="small muted">Διάλεξε πρώτα τη διεύθυνση.</span>'
+        : !ar ? `<span class="small" style="color:var(--accent-ink)">Η εταιρία δεν εξυπηρετεί τον δήμο ${esc(LCO.dimos)}. Πρόσθεσέ τον σε μια ζώνη από το Προφίλ → Ρυθμίσεις.</span>`
+        : `<div class="row-wrap" style="gap:10px">
+            ${f('lco-size', 'Μέγεθος', `<select class="input" id="lco-size" data-chg="lcoSet" data-k="size">${sizes.map((s) => `<option value="${s}" ${LCO.size === s ? 'selected' : ''}>${esc(sizeName(s))} · ${freeBins(co, s)} ελεύθεροι</option>`).join('')}</select>`)}
+            ${f('lco-mat', 'Υλικό', `<select class="input" id="lco-mat" data-chg="lcoSet" data-k="mat">${mats.map((m) => `<option value="${m.id}" ${LCO.mat === m.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select>`)}</div>
+          ${free ? '' : '<span class="small" style="color:var(--accent-ink)">Δεν υπάρχει ελεύθερος κάδος αυτού του μεγέθους.</span>'}
+          ${q ? `<div class="kv"><span>Τιμή (τιμοκατάλογος)</span><b>${eur(q.total)} με ΦΠΑ</b></div><span class="xs muted">${ar.prices[LCO.size].days || ''} ημέρες ενοικίασης${ar.prices[LCO.size].extra ? ' · ' + eur2(ar.prices[LCO.size].extra * 1.24) + ' ανά επιπλέον ημέρα' : ''}</span>` : ''}`}</div>
+    <div class="card stack-s"><b>Ημέρα και ώρα</b>
+      ${LCO.days === 'loading' ? '<span class="small muted">Αναζήτηση διαθέσιμων ημερών…</span>'
+        : Array.isArray(LCO.days) && LCO.days.length ? `<div class="tabs day-chips">${LCO.days.map(dayChip).join('')}</div>` : ''}
+      <div class="row-wrap" style="gap:10px">
+        ${f('lco-date', 'Ή άλλη ημέρα', `<input class="input" id="lco-date" type="date" data-chg="lcoSet" data-k="date" value="${esc(LCO.date)}" min="${ymd(new Date())}">`)}
+        ${f('lco-from', 'Από (προαιρετικό)', `<input class="input" id="lco-from" type="time" step="900" data-chg="lcoSet" data-k="from" value="${esc(LCO.from)}">`)}
+        ${f('lco-to', 'Έως', `<input class="input" id="lco-to" type="time" step="900" data-chg="lcoSet" data-k="to" value="${esc(LCO.to)}">`)}</div>
+      ${co.solo || !drivers.length ? '' : f('lco-drv', 'Οδηγός (προαιρετικό · αλλιώς ανάθεση αργότερα)', `<select class="input" id="lco-drv" data-chg="lcoSet" data-k="driver"><option value="">Αργότερα</option>${drivers.map(([k, d]) => `<option value="${k}" ${LCO.driver === k ? 'selected' : ''}>${esc(d.name)}</option>`).join('')}</select>`)}
+      ${f('lco-notes', 'Σημείωση (προαιρετικό)', `<textarea class="input" id="lco-notes" rows="2" data-in="lco.notes" placeholder="π.χ. είσοδος από το πλάι, κλειδί στον φύλακα">${esc(LCO.notes)}</textarea>`)}</div>
+    ${LCO.err ? `<div class="alert" role="alert">${esc(LCO.err)}</div>` : ''}
+    <button class="btn primary big" data-act="lcoSubmit" ${LCO.busy ? 'disabled' : ''}>${LCO.busy ? 'Καταχώριση…' : 'Καταχώριση παραγγελίας' + (q ? ' · ' + eur(q.total) : '')}</button>
+    <span class="xs muted">Η παραγγελία χρεώνεται με την προμήθεια της πλατφόρμας όπως όλες. ${LCO.email.trim() ? 'Ο πελάτης θα λάβει email επιβεβαίωσης και ενημερώσεις.' : 'Χωρίς email ο πελάτης δεν λαμβάνει ενημερώσεις από το BazaGo.'}</span></div>`;
+}
+
+const LIVE_CO_ORDER = {
+  lcoOpen() { lcoReset(); LCO.open = true; window.scrollTo(0, 0); render(); setTimeout(() => { const el = document.getElementById('lco-phone'); if (el) el.focus(); }, 50); },
+  lcoClose() { LCO.open = false; render(); },
+  lcoDay(el) { LCO.date = el.dataset.v; render(); },
+  async lcoSubmit() {
+    const co = D.companies[ui.co.id] || {};
+    LCO.err = '';
+    if (LCO.phone.replace(/\D/g, '').length < 10) LCO.err = 'Γράψε το κινητό του πελάτη';
+    else if (LCO.name.trim().length < 2) LCO.err = 'Γράψε το όνομα του πελάτη';
+    else if (!LCO.addr.trim() || !LCO.dimos) LCO.err = 'Διάλεξε τη διεύθυνση και τον δήμο';
+    else if (!LCO.size || !coArea(co, LCO.dimos)) LCO.err = 'Διάλεξε μέγεθος κάδου';
+    else if (LCO.from && LCO.to && LCO.to <= LCO.from) LCO.err = 'Η ώρα «έως» πρέπει να είναι μετά το «από»';
+    if (LCO.err) { render(); return; }
+    const g = LCO.geo;
+    const p = { company_id: ui.co.id, customer_name: LCO.name.trim(), customer_phone: LCO.phone.trim(), customer_email: LCO.email.trim() || null,
+      address: LCO.addr.trim(), municipality_id: lvMunId(LCO.dimos), lat: g ? g.lat : null, lng: g ? g.lng : null,
+      size_id: LCO.size, material_id: LCO.mat, date: LCO.date || null, notes: LCO.notes.trim() || null,
+      slot_start: LCO.from || null, slot_end: LCO.from && LCO.to ? LCO.to : null, driver_id: LCO.driver ? lvDid(LCO.driver) : null };
+    LCO.busy = true; render();
+    const { data, error } = await SB.rpc('company_place_order', { p });
+    LCO.busy = false;
+    if (error) { LCO.err = error.message; render(); return; }
+    const o = Array.isArray(data) ? data[0] : data;
+    LCO.open = false;
+    toast('Η παραγγελία #' + (o && o.code) + ' καταχωρίστηκε');
+    await liveLoad();
+    if (o && D.orders[o.id]) A.coOpenReq({ dataset: { v: o.id } }); else render();
+  },
+  lcoPickup(el) {
+    const id = el.dataset.v;
+    return lvOnce('lp' + id, () => lvRpc('request_pickup', { oid: id }, 'Η αποκομιδή καταχωρίστηκε για λογαριασμό του πελάτη'));
+  },
+  lcoSwap(el) {
+    const id = el.dataset.v, o = D.orders[id];
+    return lvOnce('ls' + id, () => lvRpc('request_swap', { oid: id, p_size: o.size, p_material: o.mat, p_note: 'Από τηλέφωνο/email του πελάτη' }, 'Η αντικατάσταση καταχωρίστηκε για λογαριασμό του πελάτη'));
+  },
+};
+
+function liveCompanyOrderBoot() {
+  Object.assign(A, LIVE_CO_ORDER);
+  Object.assign(CHG, { lcoSet(el) { LCO[el.dataset.k] = el.value; LCO.err = ''; render(); } });
+  const baseBody = body;
+  body = function () {
+    if (LCO.open && ui.role === 'company' && LV.user) return lcoView();
+    return baseBody();
+  };
+  // το κινητό: μόλις έχει 10 ψηφία, συμπλήρωση από προηγούμενη παραγγελία
+  const baseRender = render;
+  render = function () { const r = baseRender.apply(this, arguments); if (LCO.open) setTimeout(lcoLookup, 0); return r; };
+  // κάρτα παραγγελίας: «από τηλέφωνο» και αιτήματα για λογαριασμό του πελάτη
+  const baseReq = reqCard;
+  reqCard = function (o, co) {
+    let h = baseReq(o, co);
+    if (!o || !o.id) return h;
+    const i = h.lastIndexOf('</article>');
+    if (i < 0) return h;
+    let add = '';
+    if (o.source === 'company') add += '<span class="chip t-info" style="align-self:flex-start">Καταχώριση από την εταιρία (τηλέφωνο/email)</span>';
+    if (o.status === 'onsite') {
+      add += `<div class="row-wrap" style="gap:8px"><button class="btn sm" data-act="lcoPickup" data-v="${o.id}">Ο πελάτης ζήτησε αποκομιδή</button>`
+        + (o.perm ? '' : `<button class="btn sm" data-act="lcoSwap" data-v="${o.id}">Ο πελάτης ζήτησε αντικατάσταση</button>`) + '</div>';
+    }
+    return add ? h.slice(0, i) + add + h.slice(i) : h;
   };
 }
 
