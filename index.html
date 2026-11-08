@@ -5302,7 +5302,7 @@ const lvbRank = (x) => LVB_ORDER.indexOf(x.info.k) * 1e6 - (x.info.r.over || 0) 
 function lvbFilter(list) {
   const f = ui.co.bkF || 'all', sz = ui.co.bkSize || '', q = norm(String(ui.co.bkq || '').trim());
   return list.filter((o) => (f === 'all' || o.info.k === f) && (!sz || String(o.size) === sz)
-    && (!q || [o.code, o.binCode, o.customerName, o.address, o.projectName, o.dimos].some((x) => norm(String(x || '')).includes(q))));
+    && (!q || [o.code, '#' + o.code, o.binCode, o.customerName, o.phone, o.address, o.projectName, o.dimos].some((x) => norm(String(x || '')).includes(q))));
 }
 
 function lvbPopup(o) {
@@ -5310,7 +5310,8 @@ function lvbPopup(o) {
   const nav = 'https://www.google.com/maps/dir/?api=1&destination=' + o.g.lat + ',' + o.g.lng;
   return `<div class="lvb-pop" style="min-width:210px;max-width:260px;display:flex;flex-direction:column;gap:4px;font:13px/1.4 inherit">
     <div style="display:flex;justify-content:space-between;gap:8px"><b>${esc(o.binCode || '#' + o.code)}</b><span style="color:${c[1]};font-weight:700">${esc(o.info.req || c[0])}</span></div>
-    <span>${esc(sizeName(o.size))} · ${esc(matName(o.mat))}</span>
+    <span>${esc(sizeName(o.size))} · ${esc(matName(o.mat))} · παραγγελία #${esc(o.code)}${o.createdAt ? ' (' + fmtDate(o.createdAt) + ')' : ''}</span>
+    ${o.info.r.start ? `<span>Τοποθέτηση: ${fmtDate(o.info.r.start)}</span>` : ''}
     <span><b>${esc(o.customerName || '')}</b><br>${esc(o.address || '')}</span>
     <span style="color:${o.info.k === 'over' ? c[1] : 'inherit'}">${esc(o.info.txt)}</span>
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:4px">
@@ -5329,16 +5330,29 @@ function lvbView(co, cid) {
   const chip = (k, l, n, col) => `<button class="pill sm ${f === k ? 'on' : ''}" data-act="coSet" data-k="bkF" data-v="${k}" aria-pressed="${f === k}">${col ? `<i class="cdot" style="background:${col}"></i>` : ''}${l}<span class="cnt">${n}</span></button>`;
   const urgent = ['over', 'ending', 'pickup', 'swap'].filter((k) => cnt(k));
   const sizes = [...new Set(all.map((o) => String(o.size)))].sort((a, b) => parseFloat(a) - parseFloat(b));
+  const kv = (l, v, st) => v ? `<span class="lvb-kv"><span class="muted">${l}</span> <span style="${st || ''}">${v}</span></span>` : '';
   const row = (o) => {
-    const c = LVB_K[o.info.k];
+    const c = LVB_K[o.info.k], r = o.info.r;
+    const placed = r.start ? fmtDate(r.start) : '';
+    const pick = o.pickupDate ? lvDMY(o.pickupDate) : '';
+    const swapD = o.swap && o.swap.date ? (o.swap.dateLabel || lvDMY(o.swap.date)) : '';
     return `<button class="mb-row lvb-row" data-act="coOpenReq" data-v="${o.id}" style="text-align:left;width:100%;align-items:flex-start;gap:10px">
       <i class="cdot" style="background:${c[1]};margin-top:5px;flex:none"></i>
-      <span class="grow" style="min-width:0;display:flex;flex-direction:column;gap:2px">
-        <span class="row between" style="gap:8px"><b class="small">${esc(o.binCode || '#' + o.code)} · ${esc(sizeName(o.size))}</b><span class="xs" style="color:${c[1]};font-weight:700;white-space:nowrap">${esc(o.info.req || c[0])}</span></span>
-        <span class="small" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(o.customerName || '')} · ${esc(o.address || '')}</span>
-        <span class="xs ${o.info.k === 'over' ? '' : 'muted'}" style="${o.info.k === 'over' ? 'color:' + c[1] : ''}">${esc(o.info.txt)}</span></span></button>`;
+      <span class="grow" style="min-width:0;display:flex;flex-direction:column;gap:3px">
+        <span class="row between" style="gap:8px"><b class="small">${esc(o.binCode || '—')} · ${esc(sizeName(o.size))} · ${esc(matName(o.mat))}</b><span class="xs" style="color:${c[1]};font-weight:700;white-space:nowrap">${esc(o.info.req || c[0])}</span></span>
+        <span class="small"><b>${esc(o.customerName || '')}</b>${o.phone ? ' · ' + esc(o.phone) : ''}</span>
+        <span class="small" style="overflow-wrap:anywhere">${esc(o.address || '')}${o.projectName && o.projectName !== o.address ? ' <span class="muted">(' + esc(o.projectName) + ')</span>' : ''}</span>
+        <span class="lvb-kvs xs">
+          ${kv('Παραγγελία', '#' + esc(o.code) + (o.createdAt ? ' · ' + fmtDate(o.createdAt) : ''))}
+          ${kv('Τοποθέτηση', placed)}
+          ${kv(r.perm ? 'Μόνιμος' : 'Ενοικίαση', esc(o.info.txt.replace(/^Μόνιμος · /, '')), o.info.k === 'over' ? 'color:' + c[1] + ';font-weight:700' : '')}
+          ${kv('Αποκομιδή', pick && String(o.status).startsWith('pickup') ? pick : '')}
+          ${kv('Αντικατάσταση', swapD && String(o.status).startsWith('swap') ? swapD : '')}
+          ${kv('Πληρωμή', o.paid ? 'εξοφλήθηκε' : 'ανεξόφλητη', o.paid ? '' : 'font-weight:600')}
+        </span>
+        ${o.notes ? `<span class="xs muted" style="overflow-wrap:anywhere">Σημείωση: ${esc(String(o.notes).slice(0, 140))}</span>` : ''}</span></button>`;
   };
-  return `<div class="stack">
+  return `<style>.lvb-kvs{display:flex;flex-wrap:wrap;gap:2px 14px}.lvb-kv{white-space:nowrap}</style><div class="stack">
     <div class="card stack-s">
       <div class="row between" style="gap:8px;flex-wrap:wrap"><b>Στόλος κάδων</b><button class="btn link" data-act="lvbFleet">Διαχείριση στόλου</button></div>
       <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(76px,1fr))">
@@ -5347,7 +5361,7 @@ function lvbView(co, cid) {
       ${urgent.length ? `<div class="stack-s" style="gap:4px">${urgent.map((k) => `<button class="btn link" data-act="coSet" data-k="bkF" data-v="${k}" style="align-self:flex-start;color:${LVB_K[k][1]}"><i class="cdot" style="background:${LVB_K[k][1]}"></i> ${cnt(k)} · ${{ over: 'πέρασαν τις ημέρες ενοικίασης', ending: 'λήγουν σήμερα ή αύριο', pickup: 'ζήτησαν αποκομιδή', swap: 'ζήτησαν αντικατάσταση' }[k]}</button>`).join('')}</div>`
         : '<span class="xs muted">Τίποτα επείγον αυτή τη στιγμή.</span>'}</div>
     <div class="tabs day-chips">${chip('all', 'Όλοι', all.length)}${LVB_ORDER.filter((k) => cnt(k)).map((k) => chip(k, LVB_K[k][0], cnt(k), LVB_K[k][1])).join('')}</div>
-    <div class="rq-bar"><div class="search-box grow"><label class="sr" for="bk-q">Αναζήτηση κάδου</label>${icon.search}<input class="input" id="bk-q" data-in="co.bkq" data-live="1" value="${esc(ui.co.bkq || '')}" placeholder="Κάδος, πελάτης ή διεύθυνση" autocomplete="off"></div>
+    <div class="rq-bar"><div class="search-box grow"><label class="sr" for="bk-q">Αναζήτηση κάδου</label>${icon.search}<input class="input" id="bk-q" data-in="co.bkq" data-live="1" value="${esc(ui.co.bkq || '')}" placeholder="Κάδος, πελάτης, τηλέφωνο, διεύθυνση ή #παραγγελία" autocomplete="off"></div>
       ${sizes.length > 1 ? `<select class="input sm" data-chg="lvbSize" aria-label="Μέγεθος" style="max-width:140px"><option value="">Όλα τα μεγέθη</option>${sizes.map((s) => `<option value="${esc(s)}" ${ui.co.bkSize === s ? 'selected' : ''}>${esc(sizeName(s))}</option>`).join('')}</select>` : ''}</div>
     <div id="lvb-slot" style="position:relative;z-index:0;isolation:isolate;height:min(56vh,440px);border-radius:12px;overflow:hidden;border:1px solid var(--line);background:#e9ecef"></div>
     <span class="xs muted">Πάτα μια πινέζα για στοιχεία, πλοήγηση και την παραγγελία. ${all.some((o) => !o.geo) ? 'Όσοι κάδοι δεν έχουν ακριβές σημείο φαίνονται στο κέντρο της περιοχής τους.' : ''}</span>
