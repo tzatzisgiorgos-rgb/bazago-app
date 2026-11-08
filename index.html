@@ -5014,7 +5014,7 @@ async function lvPinSheet(opts) {
       <div class="pinmsg small" style="position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:500;background:var(--card,#fff);color:var(--ink);padding:6px 10px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:calc(100% - 120px);text-align:center">Φόρτωση χάρτη…</div></div>
     <div style="padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap">
       <a class="btn pinv" href="https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lng}" target="_blank" rel="noopener" style="${opts.view ? '' : 'display:none'}">Πλοήγηση</a>
-      <button class="btn pinv" data-pin="edit" style="${opts.view ? '' : 'display:none;'}flex:1">Διόρθωση σημείου</button>
+      <button class="btn pinv" data-pin="edit" style="${opts.view && !opts.ro ? '' : 'display:none;'}flex:1">Διόρθωση σημείου</button>
       <button class="btn pine" data-pin="gps" style="${opts.view ? 'display:none' : ''}">Η θέση μου</button>
       <button class="btn primary pine" data-pin="save" style="${opts.view ? 'display:none;' : ''}flex:1" disabled>Αποθήκευση σημείου</button></div>`;
   document.body.appendChild(box);
@@ -5063,18 +5063,26 @@ async function lvPinSheet(opts) {
   save.disabled = false;
   if (opts.view) {
     LVM.mark = window.L.marker([g.lat, g.lng], { title: 'Σημείο τοποθέτησης' }).addTo(map);
-    msg.textContent = exact ? 'Το σημείο που όρισε ο πελάτης' : 'Θέση από τη διεύθυνση (κατά προσέγγιση)';
+    msg.textContent = { pin: 'Το σημείο που όρισε ο πελάτης στον χάρτη', addr: 'Θέση από τη διεύθυνση που διάλεξε ο πελάτης',
+      google: 'Θέση από τη διεύθυνση που έγραψε ο πελάτης', area: 'Μόνο η περιοχή είναι γνωστή · δες τη διεύθυνση πάνω' }[opts.src] || 'Θέση από τη διεύθυνση';
     return;
   }
   msg.textContent = exact ? 'Μετακίνησε τον χάρτη για να αλλάξεις το σημείο' : 'Μετακίνησε τον χάρτη ώστε η πινέζα να δείχνει πού θα μπει ο κάδος';
   map.once('movestart', () => { msg.style.display = 'none'; });
 }
 
-function lvPinOpen(el) {
+async function lvPinOpen(el) {
   const id = el.dataset.v, o0 = D.orders[id];
   if (!o0) return;
-  const o = Object.assign({ id }, o0), g = geoOf(o);
-  return lvPinSheet({ lat: g.lat, lng: g.lng, exact: lvExact(o), sub: (o.address || '') + (o.dimos ? ' · ' + o.dimos : ''), view: el.dataset.view === '1',
+  const o = Object.assign({ id }, o0), view = el.dataset.view === '1';
+  let g = geoOf(o), src = lvExact(o) ? 'pin' : o.geo ? 'addr' : 'area';
+  // χωρίς αποθηκευμένο σημείο: θέση από τη γραμμένη διεύθυνση (Google), αλλιώς το κέντρο της περιοχής
+  if (view && !o.geo && o.address && typeof lvaGeocodeText === 'function') {
+    toast('Εύρεση διεύθυνσης…');
+    const r = await lvaGeocodeText(o.address + (o.dimos ? ', ' + o.dimos : ''), g);
+    if (r) { g = r; src = 'google'; }
+  }
+  return lvPinSheet({ lat: g.lat, lng: g.lng, exact: src === 'pin', src, ro: el.dataset.ro === '1', sub: (o.address || '') + (o.dimos ? ' · ' + o.dimos : ''), view,
     onSave: (lat, lng) => lvRpc('set_order_location', { oid: id, p_lat: lat, p_lng: lng }, 'Το σημείο αποθηκεύτηκε') });
 }
 
@@ -5108,10 +5116,11 @@ function liveMapBoot() {
   const baseReq = reqCard;
   reqCard = function (o, co) {
     const h = baseReq(o, co);
-    if (!o || !o.id || ['completed', 'cancelled', 'rejected', 'declined'].includes(o.status)) return h;
+    if (!o || !o.id) return h;
+    const ro = ['completed', 'cancelled', 'rejected', 'declined'].includes(o.status);
     const i = h.lastIndexOf('</article>');
     if (i < 0) return h;
-    const btn = `<button class="btn sm" data-act="pinOpen" data-v="${o.id}" data-view="1" style="align-self:flex-start">${icon.mpin}${lvExact(o) ? 'Δες στον χάρτη · ακριβές σημείο' : 'Δες στον χάρτη'}</button>`;
+    const btn = `<button class="btn sm" data-act="pinOpen" data-v="${o.id}" data-view="1" ${ro ? 'data-ro="1"' : ''} style="align-self:flex-start">${icon.mpin}${lvExact(o) ? 'Δες στον χάρτη · ακριβές σημείο' : 'Δες στον χάρτη'}</button>`;
     return h.slice(0, i) + btn + h.slice(i);
   };
 }
@@ -5210,6 +5219,26 @@ async function lvaPick(k, s) {
   const t2 = addrTarget(k);
   t2.gsrc = 1; t2.dimosEdit = !dimos;
   persist(); render();
+}
+
+// θέση από γραμμένη διεύθυνση (για παραγγελίες χωρίς σημείο): πρώτη πρόταση Google → ακριβής θέση
+const LVA_GEO = {};
+async function lvaGeocodeText(text, near) {
+  const q = String(text || '').trim();
+  if (q.length < 4 || !LVA.on || !SB) return null;
+  if (q in LVA_GEO) return LVA_GEO[q];
+  const session = lvaTok();
+  try {
+    const a = await SB.functions.invoke('maps', { body: { action: 'autocomplete', input: q, session } });
+    const id = a.data && !a.data.error && a.data.items && a.data.items[0] && a.data.items[0].id;
+    if (!id) return (LVA_GEO[q] = null);
+    const p = await SB.functions.invoke('maps', { body: { action: 'place', id, session } });
+    const d = p.data;
+    if (!d || d.error || !isFinite(d.lat)) return (LVA_GEO[q] = null);
+    // λογικός έλεγχος: όχι μακριά από την περιοχή της παραγγελίας
+    if (near && Math.hypot(d.lat - near.lat, (d.lng - near.lng) * Math.cos(near.lat * Math.PI / 180)) > 0.35) return (LVA_GEO[q] = null);
+    return (LVA_GEO[q] = { lat: d.lat, lng: d.lng, label: d.formatted || q });
+  } catch (e) { return null; }
 }
 
 function liveAddressBoot() {
