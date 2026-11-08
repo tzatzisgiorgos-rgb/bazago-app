@@ -4985,6 +4985,7 @@ function lvPinCard(o) {
 }
 
 function lvPinClose() {
+  LVM.mark = null;
   if (LVM.map) { try { LVM.map.remove(); } catch (e) { /* */ } }
   if (LVM.el) LVM.el.remove();
   LVM.map = null; LVM.el = null;
@@ -4993,7 +4994,8 @@ function lvPinClose() {
 }
 function lvPinKey(e) { if (e.key === 'Escape') lvPinClose(); }
 
-// οθόνη χάρτη· opts = { lat, lng, exact, sub, onSave(lat, lng) → true αν πέτυχε }
+// οθόνη χάρτη· opts = { lat, lng, exact, sub, onSave(lat, lng) → true αν πέτυχε, view }
+// view: η πινέζα μένει καρφωμένη στο σημείο (μόνο προβολή)· «Διόρθωση σημείου» → επεξεργασία
 async function lvPinSheet(opts) {
   const g = { lat: opts.lat, lng: opts.lng }, exact = !!opts.exact;
   lvPinClose();
@@ -5007,12 +5009,14 @@ async function lvPinSheet(opts) {
       <button class="btn sm" data-pin="close" aria-label="Κλείσιμο">Άκυρο</button></div>
     <div style="position:relative;flex:1;min-height:0">
       <div class="pinmap" style="position:absolute;inset:0;background:#e9ecef"></div>
-      <div aria-hidden="true" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);z-index:500;pointer-events:none;color:var(--accent);filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">
+      <div class="pincenter" aria-hidden="true" style="${opts.view ? 'display:none;' : ''}position:absolute;left:50%;top:50%;transform:translate(-50%,-100%);z-index:500;pointer-events:none;color:var(--accent);filter:drop-shadow(0 2px 2px rgba(0,0,0,.35))">
         <svg width="40" height="40" viewBox="0 0 24 24"><path fill="currentColor" stroke="#fff" stroke-width="1.2" d="M12 22s7-6.2 7-12a7 7 0 1 0-14 0c0 5.8 7 12 7 12z"/><circle cx="12" cy="10" r="2.6" fill="#fff"/></svg></div>
       <div class="pinmsg small" style="position:absolute;left:50%;top:12px;transform:translateX(-50%);z-index:500;background:var(--card,#fff);color:var(--ink);padding:6px 10px;border-radius:8px;box-shadow:0 1px 4px rgba(0,0,0,.2);max-width:calc(100% - 120px);text-align:center">Φόρτωση χάρτη…</div></div>
     <div style="padding:12px 16px calc(12px + env(safe-area-inset-bottom));border-top:1px solid var(--line);display:flex;gap:8px;flex-wrap:wrap">
-      <button class="btn" data-pin="gps">Η θέση μου</button>
-      <button class="btn primary" data-pin="save" style="flex:1" disabled>Αποθήκευση σημείου</button></div>`;
+      <a class="btn pinv" href="https://www.google.com/maps/dir/?api=1&destination=${g.lat},${g.lng}" target="_blank" rel="noopener" style="${opts.view ? '' : 'display:none'}">Πλοήγηση</a>
+      <button class="btn pinv" data-pin="edit" style="${opts.view ? '' : 'display:none;'}flex:1">Διόρθωση σημείου</button>
+      <button class="btn pine" data-pin="gps" style="${opts.view ? 'display:none' : ''}">Η θέση μου</button>
+      <button class="btn primary pine" data-pin="save" style="${opts.view ? 'display:none;' : ''}flex:1" disabled>Αποθήκευση σημείου</button></div>`;
   document.body.appendChild(box);
   document.body.style.overflow = 'hidden';
   document.addEventListener('keydown', lvPinKey);
@@ -5023,6 +5027,14 @@ async function lvPinSheet(opts) {
     e.preventDefault(); e.stopPropagation();
     const k = b.dataset.pin;
     if (k === 'close') { lvPinClose(); return; }
+    if (k === 'edit' && LVM.map) {          // από προβολή σε επεξεργασία: η πινέζα πάει στο κέντρο, μετακινείται ο χάρτης
+      if (LVM.mark) { LVM.map.setView(LVM.mark.getLatLng(), Math.max(LVM.map.getZoom(), 18)); LVM.map.removeLayer(LVM.mark); LVM.mark = null; }
+      box.querySelectorAll('.pinv').forEach((x) => { x.style.display = 'none'; });
+      box.querySelectorAll('.pine').forEach((x) => { x.style.display = ''; });
+      box.querySelector('.pincenter').style.display = '';
+      msg.style.display = ''; msg.textContent = 'Μετακίνησε τον χάρτη ώστε η πινέζα να δείχνει το σωστό σημείο και πάτα Αποθήκευση';
+      return;
+    }
     if (k === 'gps') {
       if (!navigator.geolocation || !LVM.map) return;
       msg.textContent = 'Εντοπισμός θέσης…'; msg.style.display = '';
@@ -5048,8 +5060,13 @@ async function lvPinSheet(opts) {
     maxZoom: 19, attribution: '© <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a>' }).addTo(map);
   LVM.map = map;
   setTimeout(() => { try { map.invalidateSize(); } catch (e) { /* */ } }, 50);
-  msg.textContent = exact ? 'Μετακίνησε τον χάρτη για να αλλάξεις το σημείο' : 'Μετακίνησε τον χάρτη ώστε η πινέζα να δείχνει πού θα μπει ο κάδος';
   save.disabled = false;
+  if (opts.view) {
+    LVM.mark = window.L.marker([g.lat, g.lng], { title: 'Σημείο τοποθέτησης' }).addTo(map);
+    msg.textContent = exact ? 'Το σημείο που όρισε ο πελάτης' : 'Θέση από τη διεύθυνση (κατά προσέγγιση)';
+    return;
+  }
+  msg.textContent = exact ? 'Μετακίνησε τον χάρτη για να αλλάξεις το σημείο' : 'Μετακίνησε τον χάρτη ώστε η πινέζα να δείχνει πού θα μπει ο κάδος';
   map.once('movestart', () => { msg.style.display = 'none'; });
 }
 
@@ -5057,7 +5074,7 @@ function lvPinOpen(el) {
   const id = el.dataset.v, o0 = D.orders[id];
   if (!o0) return;
   const o = Object.assign({ id }, o0), g = geoOf(o);
-  return lvPinSheet({ lat: g.lat, lng: g.lng, exact: lvExact(o), sub: (o.address || '') + (o.dimos ? ' · ' + o.dimos : ''),
+  return lvPinSheet({ lat: g.lat, lng: g.lng, exact: lvExact(o), sub: (o.address || '') + (o.dimos ? ' · ' + o.dimos : ''), view: el.dataset.view === '1',
     onSave: (lat, lng) => lvRpc('set_order_location', { oid: id, p_lat: lat, p_lng: lng }, 'Το σημείο αποθηκεύτηκε') });
 }
 
@@ -5094,7 +5111,7 @@ function liveMapBoot() {
     if (!o || !o.id || ['completed', 'cancelled', 'rejected', 'declined'].includes(o.status)) return h;
     const i = h.lastIndexOf('</article>');
     if (i < 0) return h;
-    const btn = `<button class="btn sm" data-act="pinOpen" data-v="${o.id}" style="align-self:flex-start">${icon.mpin}${lvExact(o) ? 'Σημείο στον χάρτη ✓' : 'Σημείο στον χάρτη'}</button>`;
+    const btn = `<button class="btn sm" data-act="pinOpen" data-v="${o.id}" data-view="1" style="align-self:flex-start">${icon.mpin}${lvExact(o) ? 'Δες στον χάρτη · ακριβές σημείο' : 'Δες στον χάρτη'}</button>`;
     return h.slice(0, i) + btn + h.slice(i);
   };
 }
